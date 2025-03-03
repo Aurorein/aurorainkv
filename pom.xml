@@ -4,16 +4,16 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.sakame</groupId>
-    <artifactId>MIT6.824-Java-2021</artifactId>
+    <groupId>com.aurorain</groupId>
+    <artifactId>aurorainkv</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
         <module>common</module>
         <module>my-rpc</module>
-        <module>map-reduce</module>
         <module>raft</module>
-        <module>kv-raft</module>
+        <module>shard-kv</module>
+        <module>shard-master</module>
     </modules>
 
     <properties>
@@ -50,6 +50,11 @@
             <artifactId>junit-jupiter-engine</artifactId>
             <version>5.8.1</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.rocksdb</groupId>
+            <artifactId>rocksdbjni</artifactId>
+            <version>6.10.2</version>
         </dependency>
     </dependencies>
 

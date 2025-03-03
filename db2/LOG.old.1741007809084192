@@ -1,0 +1,272 @@
+2025/03/03-21:15:26.598690 c53c RocksDB version: 6.10.2
+2025/03/03-21:15:26.598784 c53c Git sha rocksdb_build_git_sha:@1482c8697c260cc12f7fce9f15401a85330d2ff1@
+2025/03/03-21:15:26.598811 c53c Compile date Jun 28 2020
+2025/03/03-21:15:26.598827 c53c DB SUMMARY
+2025/03/03-21:15:26.598997 c53c CURRENT file:  CURRENT
+2025/03/03-21:15:26.599021 c53c IDENTITY file:  IDENTITY
+2025/03/03-21:15:26.599049 c53c MANIFEST file:  MANIFEST-000069 size: 279 Bytes
+2025/03/03-21:15:26.599067 c53c SST files in D:/Papers/graduation/MIT6.824-Java-2021/db2 dir, Total Num: 4, files: 000060.sst 000062.sst 000065.sst 000068.sst 
+2025/03/03-21:15:26.599082 c53c Write Ahead Log file in D:/Papers/graduation/MIT6.824-Java-2021/db2: 000070.log size: 0 ; 
+2025/03/03-21:15:26.599099 c53c                         Options.error_if_exists: 0
+2025/03/03-21:15:26.599256 c53c                       Options.create_if_missing: 1
+2025/03/03-21:15:26.599265 c53c                         Options.paranoid_checks: 1
+2025/03/03-21:15:26.599271 c53c                                     Options.env: 0000029793DC2760
+2025/03/03-21:15:26.599277 c53c                                      Options.fs: Legacy File System
+2025/03/03-21:15:26.599282 c53c                                Options.info_log: 00000297912D9D50
+2025/03/03-21:15:26.599287 c53c                Options.max_file_opening_threads: 16
+2025/03/03-21:15:26.599293 c53c                              Options.statistics: 0000000000000000
+2025/03/03-21:15:26.599298 c53c                               Options.use_fsync: 0
+2025/03/03-21:15:26.599304 c53c                       Options.max_log_file_size: 0
+2025/03/03-21:15:26.599309 c53c                  Options.max_manifest_file_size: 1073741824
+2025/03/03-21:15:26.599314 c53c                   Options.log_file_time_to_roll: 0
+2025/03/03-21:15:26.599319 c53c                       Options.keep_log_file_num: 1000
+2025/03/03-21:15:26.599324 c53c                    Options.recycle_log_file_num: 0
+2025/03/03-21:15:26.599329 c53c                         Options.allow_fallocate: 1
+2025/03/03-21:15:26.599335 c53c                        Options.allow_mmap_reads: 0
+2025/03/03-21:15:26.599340 c53c                       Options.allow_mmap_writes: 0
+2025/03/03-21:15:26.599346 c53c                        Options.use_direct_reads: 0
+2025/03/03-21:15:26.599351 c53c                        Options.use_direct_io_for_flush_and_compaction: 0
+2025/03/03-21:15:26.599356 c53c          Options.create_missing_column_families: 0
+2025/03/03-21:15:26.599361 c53c                              Options.db_log_dir: 
+2025/03/03-21:15:26.599366 c53c                                 Options.wal_dir: D:/Papers/graduation/MIT6.824-Java-2021/db2
+2025/03/03-21:15:26.599372 c53c                Options.table_cache_numshardbits: 6
+2025/03/03-21:15:26.599377 c53c                      Options.max_subcompactions: 1
+2025/03/03-21:15:26.599382 c53c                         Options.WAL_ttl_seconds: 0
+2025/03/03-21:15:26.599387 c53c                       Options.WAL_size_limit_MB: 0
+2025/03/03-21:15:26.599393 c53c                        Options.max_write_batch_group_size_bytes: 1048576
+2025/03/03-21:15:26.599398 c53c             Options.manifest_preallocation_size: 4194304
+2025/03/03-21:15:26.599404 c53c                     Options.is_fd_close_on_exec: 1
+2025/03/03-21:15:26.599409 c53c                   Options.advise_random_on_open: 1
+2025/03/03-21:15:26.599415 c53c                    Options.db_write_buffer_size: 0
+2025/03/03-21:15:26.599420 c53c                    Options.write_buffer_manager: 000002979160B6C0
+2025/03/03-21:15:26.599426 c53c         Options.access_hint_on_compaction_start: 1
+2025/03/03-21:15:26.599431 c53c  Options.new_table_reader_for_compaction_inputs: 0
+2025/03/03-21:15:26.599436 c53c           Options.random_access_max_buffer_size: 1048576
+2025/03/03-21:15:26.599441 c53c                      Options.use_adaptive_mutex: 0
+2025/03/03-21:15:26.599446 c53c                            Options.rate_limiter: 0000000000000000
+2025/03/03-21:15:26.599452 c53c     Options.sst_file_manager.rate_bytes_per_sec: 0
+2025/03/03-21:15:26.599457 c53c                       Options.wal_recovery_mode: 2
+2025/03/03-21:15:26.599490 c53c                  Options.enable_thread_tracking: 0
+2025/03/03-21:15:26.599496 c53c                  Options.enable_pipelined_write: 0
+2025/03/03-21:15:26.599499 c53c                  Options.unordered_write: 0
+2025/03/03-21:15:26.599503 c53c         Options.allow_concurrent_memtable_write: 1
+2025/03/03-21:15:26.599506 c53c      Options.enable_write_thread_adaptive_yield: 1
+2025/03/03-21:15:26.599509 c53c             Options.write_thread_max_yield_usec: 100
+2025/03/03-21:15:26.599513 c53c            Options.write_thread_slow_yield_usec: 3
+2025/03/03-21:15:26.599516 c53c                               Options.row_cache: None
+2025/03/03-21:15:26.599520 c53c                              Options.wal_filter: None
+2025/03/03-21:15:26.599524 c53c             Options.avoid_flush_during_recovery: 0
+2025/03/03-21:15:26.599527 c53c             Options.allow_ingest_behind: 0
+2025/03/03-21:15:26.599530 c53c             Options.preserve_deletes: 0
+2025/03/03-21:15:26.599534 c53c             Options.two_write_queues: 0
+2025/03/03-21:15:26.599537 c53c             Options.manual_wal_flush: 0
+2025/03/03-21:15:26.599540 c53c             Options.atomic_flush: 0
+2025/03/03-21:15:26.599544 c53c             Options.avoid_unnecessary_blocking_io: 0
+2025/03/03-21:15:26.599547 c53c                 Options.persist_stats_to_disk: 0
+2025/03/03-21:15:26.599551 c53c                 Options.write_dbid_to_manifest: 0
+2025/03/03-21:15:26.599554 c53c                 Options.log_readahead_size: 0
+2025/03/03-21:15:26.599558 c53c                 Options.file_checksum_gen_factory: Unknown
+2025/03/03-21:15:26.599561 c53c                 Options.best_efforts_recovery: 0
+2025/03/03-21:15:26.599565 c53c             Options.max_background_jobs: 2
+2025/03/03-21:15:26.599568 c53c             Options.max_background_compactions: -1
+2025/03/03-21:15:26.599571 c53c             Options.avoid_flush_during_shutdown: 0
+2025/03/03-21:15:26.599575 c53c           Options.writable_file_max_buffer_size: 1048576
+2025/03/03-21:15:26.599579 c53c             Options.delayed_write_rate : 16777216
+2025/03/03-21:15:26.599582 c53c             Options.max_total_wal_size: 0
+2025/03/03-21:15:26.599586 c53c             Options.delete_obsolete_files_period_micros: 21600000000
+2025/03/03-21:15:26.599589 c53c                   Options.stats_dump_period_sec: 600
+2025/03/03-21:15:26.599593 c53c                 Options.stats_persist_period_sec: 600
+2025/03/03-21:15:26.599596 c53c                 Options.stats_history_buffer_size: 1048576
+2025/03/03-21:15:26.599600 c53c                          Options.max_open_files: -1
+2025/03/03-21:15:26.599603 c53c                          Options.bytes_per_sync: 0
+2025/03/03-21:15:26.599607 c53c                      Options.wal_bytes_per_sync: 0
+2025/03/03-21:15:26.599610 c53c                   Options.strict_bytes_per_sync: 0
+2025/03/03-21:15:26.599614 c53c       Options.compaction_readahead_size: 0
+2025/03/03-21:15:26.599617 c53c                  Options.max_background_flushes: -1
+2025/03/03-21:15:26.599621 c53c Compression algorithms supported:
+2025/03/03-21:15:26.599625 c53c 	kZSTD supported: 1
+2025/03/03-21:15:26.599629 c53c 	kSnappyCompression supported: 1
+2025/03/03-21:15:26.599632 c53c 	kBZip2Compression supported: 0
+2025/03/03-21:15:26.599636 c53c 	kZlibCompression supported: 1
+2025/03/03-21:15:26.599639 c53c 	kLZ4Compression supported: 1
+2025/03/03-21:15:26.599643 c53c 	kXpressCompression supported: 0
+2025/03/03-21:15:26.599646 c53c 	kLZ4HCCompression supported: 1
+2025/03/03-21:15:26.599650 c53c 	kZSTDNotFinalCompression supported: 1
+2025/03/03-21:15:26.599658 c53c Fast CRC32 supported: Supported on x86
+2025/03/03-21:15:26.600053 c53c [db\version_set.cc:4477] Recovering from manifest file: D:/Papers/graduation/MIT6.824-Java-2021/db2/MANIFEST-000069
+2025/03/03-21:15:26.600141 c53c [db\column_family.cc:579] --------------- Options for column family [default]:
+2025/03/03-21:15:26.600149 c53c               Options.comparator: leveldb.BytewiseComparator
+2025/03/03-21:15:26.600184 c53c           Options.merge_operator: None
+2025/03/03-21:15:26.600190 c53c        Options.compaction_filter: None
+2025/03/03-21:15:26.600194 c53c        Options.compaction_filter_factory: None
+2025/03/03-21:15:26.600197 c53c         Options.memtable_factory: SkipListFactory
+2025/03/03-21:15:26.600201 c53c            Options.table_factory: BlockBasedTable
+2025/03/03-21:15:26.600229 c53c            table_factory options:   flush_block_policy_factory: FlushBlockBySizePolicyFactory (000002978FA76630)
+  cache_index_and_filter_blocks: 0
+  cache_index_and_filter_blocks_with_high_priority: 1
+  pin_l0_filter_and_index_blocks_in_cache: 0
+  pin_top_level_index_and_filter: 1
+  index_type: 0
+  data_block_index_type: 0
+  index_shortening: 1
+  data_block_hash_table_util_ratio: 0.750000
+  hash_index_allow_collision: 1
+  checksum: 1
+  no_block_cache: 0
+  block_cache: 00000297903AEDC0
+  block_cache_name: LRUCache
+  block_cache_options:
+    capacity : 8388608
+    num_shard_bits : 4
+    strict_capacity_limit : 0
+    memory_allocator : None
+    high_pri_pool_ratio: 0.000
+  block_cache_compressed: 0000000000000000
+  persistent_cache: 0000000000000000
+  block_size: 4096
+  block_size_deviation: 10
+  block_restart_interval: 16
+  index_block_restart_interval: 1
+  metadata_block_size: 4096
+  partition_filters: 0
+  use_delta_encoding: 1
+  filter_policy: nullptr
+  whole_key_filtering: 1
+  verify_compression: 0
+  read_amp_bytes_per_bit: 0
+  format_version: 4
+  enable_index_compression: 1
+  block_align: 0
+2025/03/03-21:15:26.600233 c53c        Options.write_buffer_size: 67108864
+2025/03/03-21:15:26.600237 c53c  Options.max_write_buffer_number: 2
+2025/03/03-21:15:26.600241 c53c          Options.compression: Snappy
+2025/03/03-21:15:26.600244 c53c                  Options.bottommost_compression: Disabled
+2025/03/03-21:15:26.600247 c53c       Options.prefix_extractor: nullptr
+2025/03/03-21:15:26.600251 c53c   Options.memtable_insert_with_hint_prefix_extractor: nullptr
+2025/03/03-21:15:26.600254 c53c             Options.num_levels: 7
+2025/03/03-21:15:26.600258 c53c        Options.min_write_buffer_number_to_merge: 1
+2025/03/03-21:15:26.600261 c53c     Options.max_write_buffer_number_to_maintain: 0
+2025/03/03-21:15:26.600265 c53c     Options.max_write_buffer_size_to_maintain: 0
+2025/03/03-21:15:26.600269 c53c            Options.bottommost_compression_opts.window_bits: -14
+2025/03/03-21:15:26.600272 c53c                  Options.bottommost_compression_opts.level: 32767
+2025/03/03-21:15:26.600276 c53c               Options.bottommost_compression_opts.strategy: 0
+2025/03/03-21:15:26.600279 c53c         Options.bottommost_compression_opts.max_dict_bytes: 0
+2025/03/03-21:15:26.600283 c53c         Options.bottommost_compression_opts.zstd_max_train_bytes: 0
+2025/03/03-21:15:26.600286 c53c         Options.bottommost_compression_opts.parallel_threads: 1
+2025/03/03-21:15:26.600290 c53c                  Options.bottommost_compression_opts.enabled: false
+2025/03/03-21:15:26.600294 c53c            Options.compression_opts.window_bits: -14
+2025/03/03-21:15:26.600297 c53c                  Options.compression_opts.level: 32767
+2025/03/03-21:15:26.600301 c53c               Options.compression_opts.strategy: 0
+2025/03/03-21:15:26.600304 c53c         Options.compression_opts.max_dict_bytes: 0
+2025/03/03-21:15:26.600308 c53c         Options.compression_opts.zstd_max_train_bytes: 0
+2025/03/03-21:15:26.600311 c53c         Options.compression_opts.parallel_threads: 1
+2025/03/03-21:15:26.600315 c53c                  Options.compression_opts.enabled: false
+2025/03/03-21:15:26.600318 c53c      Options.level0_file_num_compaction_trigger: 4
+2025/03/03-21:15:26.600322 c53c          Options.level0_slowdown_writes_trigger: 20
+2025/03/03-21:15:26.600325 c53c              Options.level0_stop_writes_trigger: 36
+2025/03/03-21:15:26.600329 c53c                   Options.target_file_size_base: 67108864
+2025/03/03-21:15:26.600332 c53c             Options.target_file_size_multiplier: 1
+2025/03/03-21:15:26.600336 c53c                Options.max_bytes_for_level_base: 268435456
+2025/03/03-21:15:26.600341 c53c Options.level_compaction_dynamic_level_bytes: 0
+2025/03/03-21:15:26.600345 c53c          Options.max_bytes_for_level_multiplier: 10.000000
+2025/03/03-21:15:26.600350 c53c Options.max_bytes_for_level_multiplier_addtl[0]: 1
+2025/03/03-21:15:26.600353 c53c Options.max_bytes_for_level_multiplier_addtl[1]: 1
+2025/03/03-21:15:26.600357 c53c Options.max_bytes_for_level_multiplier_addtl[2]: 1
+2025/03/03-21:15:26.600361 c53c Options.max_bytes_for_level_multiplier_addtl[3]: 1
+2025/03/03-21:15:26.600364 c53c Options.max_bytes_for_level_multiplier_addtl[4]: 1
+2025/03/03-21:15:26.600367 c53c Options.max_bytes_for_level_multiplier_addtl[5]: 1
+2025/03/03-21:15:26.600371 c53c Options.max_bytes_for_level_multiplier_addtl[6]: 1
+2025/03/03-21:15:26.600375 c53c       Options.max_sequential_skip_in_iterations: 8
+2025/03/03-21:15:26.600378 c53c                    Options.max_compaction_bytes: 1677721600
+2025/03/03-21:15:26.600382 c53c                        Options.arena_block_size: 8388608
+2025/03/03-21:15:26.600385 c53c   Options.soft_pending_compaction_bytes_limit: 68719476736
+2025/03/03-21:15:26.600389 c53c   Options.hard_pending_compaction_bytes_limit: 274877906944
+2025/03/03-21:15:26.600392 c53c       Options.rate_limit_delay_max_milliseconds: 100
+2025/03/03-21:15:26.600396 c53c                Options.disable_auto_compactions: 0
+2025/03/03-21:15:26.600400 c53c                        Options.compaction_style: kCompactionStyleLevel
+2025/03/03-21:15:26.600405 c53c                          Options.compaction_pri: kMinOverlappingRatio
+2025/03/03-21:15:26.600408 c53c Options.compaction_options_universal.size_ratio: 1
+2025/03/03-21:15:26.600412 c53c Options.compaction_options_universal.min_merge_width: 2
+2025/03/03-21:15:26.600415 c53c Options.compaction_options_universal.max_merge_width: 4294967295
+2025/03/03-21:15:26.600419 c53c Options.compaction_options_universal.max_size_amplification_percent: 200
+2025/03/03-21:15:26.600422 c53c Options.compaction_options_universal.compression_size_percent: -1
+2025/03/03-21:15:26.600426 c53c Options.compaction_options_universal.stop_style: kCompactionStopStyleTotalSize
+2025/03/03-21:15:26.600430 c53c Options.compaction_options_fifo.max_table_files_size: 1073741824
+2025/03/03-21:15:26.600434 c53c Options.compaction_options_fifo.allow_compaction: 0
+2025/03/03-21:15:26.600442 c53c                   Options.table_properties_collectors: 
+2025/03/03-21:15:26.600446 c53c                   Options.inplace_update_support: 0
+2025/03/03-21:15:26.600450 c53c                 Options.inplace_update_num_locks: 10000
+2025/03/03-21:15:26.600453 c53c               Options.memtable_prefix_bloom_size_ratio: 0.000000
+2025/03/03-21:15:26.600457 c53c               Options.memtable_whole_key_filtering: 0
+2025/03/03-21:15:26.600461 c53c   Options.memtable_huge_page_size: 0
+2025/03/03-21:15:26.600464 c53c                           Options.bloom_locality: 0
+2025/03/03-21:15:26.600468 c53c                    Options.max_successive_merges: 0
+2025/03/03-21:15:26.600472 c53c                Options.optimize_filters_for_hits: 0
+2025/03/03-21:15:26.600475 c53c                Options.paranoid_file_checks: 0
+2025/03/03-21:15:26.600479 c53c                Options.force_consistency_checks: 0
+2025/03/03-21:15:26.600482 c53c                Options.report_bg_io_stats: 0
+2025/03/03-21:15:26.600486 c53c                               Options.ttl: 2592000
+2025/03/03-21:15:26.600489 c53c          Options.periodic_compaction_seconds: 0
+2025/03/03-21:15:26.602846 c53c [db\version_set.cc:4634] Recovered from manifest file:D:/Papers/graduation/MIT6.824-Java-2021/db2/MANIFEST-000069 succeeded,manifest_file_number is 69, next_file_number is 71, last_sequence is 24, log_number is 68,prev_log_number is 0,max_column_family is 0,min_log_number_to_keep is 0
+2025/03/03-21:15:26.602880 c53c [db\version_set.cc:4643] Column family [default] (ID 0), log number is 68
+2025/03/03-21:15:26.603289 c53c EVENT_LOG_v1 {"time_micros": 1741007726603278, "job": 1, "event": "recovery_started", "log_files": [70]}
+2025/03/03-21:15:26.603301 c53c [db\db_impl\db_impl_open.cc:774] Recovering log #70 mode 2
+2025/03/03-21:15:26.603448 c53c [db\version_set.cc:3882] Creating manifest 72
+2025/03/03-21:15:26.607043 c53c EVENT_LOG_v1 {"time_micros": 1741007726607022, "job": 1, "event": "recovery_finished"}
+2025/03/03-21:15:26.612967 c53c DB pointer 00000297911BDA60
+2025/03/03-21:15:26.613621 c6fc [db\db_impl\db_impl.cc:854] ------- DUMPING STATS -------
+2025/03/03-21:15:26.613647 c6fc [db\db_impl\db_impl.cc:855] 
+** DB Stats **
+Uptime(secs): 0.0 total, 0.0 interval
+Cumulative writes: 0 writes, 0 keys, 0 commit groups, 0.0 writes per commit group, ingest: 0.00 GB, 0.00 MB/s
+Cumulative WAL: 0 writes, 0 syncs, 0.00 writes per sync, written: 0.00 GB, 0.00 MB/s
+Cumulative stall: 00:00:0.000 H:M:S, 0.0 percent
+Interval writes: 0 writes, 0 keys, 0 commit groups, 0.0 writes per commit group, ingest: 0.00 MB, 0.00 MB/s
+Interval WAL: 0 writes, 0 syncs, 0.00 writes per sync, written: 0.00 MB, 0.00 MB/s
+Interval stall: 00:00:0.000 H:M:S, 0.0 percent
+
+** Compaction Stats [default] **
+Level    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  L0      3/0    2.32 KB   0.8      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+  L1      1/0    0.79 KB   0.0      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+ Sum      4/0    3.10 KB   0.0      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+ Int      0/0    0.00 KB   0.0      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+
+** Compaction Stats [default] **
+Priority    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Uptime(secs): 0.0 total, 0.0 interval
+Flush(GB): cumulative 0.000, interval 0.000
+AddFile(GB): cumulative 0.000, interval 0.000
+AddFile(Total Files): cumulative 0, interval 0
+AddFile(L0 Files): cumulative 0, interval 0
+AddFile(Keys): cumulative 0, interval 0
+Cumulative compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Interval compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Stalls(count): 0 level0_slowdown, 0 level0_slowdown_with_compaction, 0 level0_numfiles, 0 level0_numfiles_with_compaction, 0 stop for pending_compaction_bytes, 0 slowdown for pending_compaction_bytes, 0 memtable_compaction, 0 memtable_slowdown, interval 0 total count
+
+** File Read Latency Histogram By Level [default] **
+
+** Compaction Stats [default] **
+Level    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  L0      3/0    2.32 KB   0.8      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+  L1      1/0    0.79 KB   0.0      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+ Sum      4/0    3.10 KB   0.0      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+ Int      0/0    0.00 KB   0.0      0.0     0.0      0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0
+
+** Compaction Stats [default] **
+Priority    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Uptime(secs): 0.0 total, 0.0 interval
+Flush(GB): cumulative 0.000, interval 0.000
+AddFile(GB): cumulative 0.000, interval 0.000
+AddFile(Total Files): cumulative 0, interval 0
+AddFile(L0 Files): cumulative 0, interval 0
+AddFile(Keys): cumulative 0, interval 0
+Cumulative compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Interval compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Stalls(count): 0 level0_slowdown, 0 level0_slowdown_with_compaction, 0 level0_numfiles, 0 level0_numfiles_with_compaction, 0 stop for pending_compaction_bytes, 0 slowdown for pending_compaction_bytes, 0 memtable_compaction, 0 memtable_slowdown, interval 0 total count
+
+** File Read Latency Histogram By Level [default] **

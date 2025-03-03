@@ -1,0 +1,3 @@
+jdk=com.aurorain.serializer.JdkSerializer
+json=com.aurorain.serializer.JsonSerializer
+kryo=com.aurorain.serializer.KryoSerializer
