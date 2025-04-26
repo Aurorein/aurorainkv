@@ -1,14 +1,13 @@
 package com.aurorain;
 
-import com.aurorain.config.RegistryConfig;
-import com.aurorain.model.ServiceMetaInfo;
-import com.aurorain.registry.EtcdRegistry;
-import com.aurorain.registry.Registry;
+import com.aurorain.myrpc.config.RegistryConfig;
+import com.aurorain.commonmodule.model.ServiceMetaInfo;
+import com.aurorain.myrpc.registry.EtcdRegistry;
+import com.aurorain.myrpc.registry.Registry;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Map;
 
 

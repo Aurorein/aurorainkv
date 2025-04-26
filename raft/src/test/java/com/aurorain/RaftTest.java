@@ -2,7 +2,9 @@ package com.aurorain;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.ArrayUtil;
-import com.aurorain.model.Channel;
+import com.aurorain.raft.Raft;
+import com.aurorain.raft.RaftApplication;
+import com.aurorain.commonmodule.model.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 
