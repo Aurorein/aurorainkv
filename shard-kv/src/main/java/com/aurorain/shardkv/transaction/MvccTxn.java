@@ -45,8 +45,8 @@ public class MvccTxn {
         // 获取 CfWrite 列族的迭代器
         RocksIterator iterator = reader.iterCf(CFConstants.CfWrite);
         try {
-            // 定位到第一个大于等于 EncodeKey(key, startTs) 的键
-            iterator.seek(TransactionUtil.enCodeKey(key, startTs).getBytes());
+            // 定位到小于等于 EncodeKey(key, startTs) 的最新的键
+            iterator.seekForPrev(TransactionUtil.enCodeKey(key, startTs).getBytes());
 
             // 如果没有找到符合条件的键，返回 null
             if (!iterator.isValid()) {
@@ -89,7 +89,7 @@ public class MvccTxn {
     }
 
     public void deleteLock(String key) {
-        RocksDBEntry entry = new RocksDBEntry(key, null, CFConstants.CfLock, CommandType.LOCK);
+        RocksDBEntry entry = new RocksDBEntry(key, null, CFConstants.CfLock, CommandType.DELLOCK);
         writes.add(entry);
     }
 
@@ -97,6 +97,9 @@ public class MvccTxn {
         String value;
         try {
             value = reader.getCf(CFConstants.CfLock, key);
+            if(value == null) {
+                return null;
+            }
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
@@ -105,12 +108,17 @@ public class MvccTxn {
 
     }
 
+    /**
+     * 获取当前事务下，传入key的最新Write
+     * @param key
+     * @return
+     */
     public WriteTs currentWrite(String key) {
         // 获取 CfWrite 列族的迭代器
         RocksIterator iterator = reader.iterCf(CFConstants.CfWrite);
         try {
             // 定位到第一个大于等于 EncodeKey(key, ^uint64(0)) 的键
-            iterator.seek(TransactionUtil.enCodeKey(key, Long.MAX_VALUE).getBytes());
+            iterator.seekForPrev(TransactionUtil.enCodeKey(key, Long.MAX_VALUE).getBytes());
 
             // 遍历迭代器
             while (iterator.isValid()) {
@@ -133,8 +141,8 @@ public class MvccTxn {
                     return new WriteTs(write, commitTs);
                 }
 
-                // 移动到下一个键
-                iterator.next();
+                // 移动到上一个键
+                iterator.prev();
             }
         } finally {
             // 关闭迭代器
@@ -144,12 +152,17 @@ public class MvccTxn {
         return null;
     }
 
+    /**
+     * 获取传入key的最新Write
+     * @param key
+     * @return
+     */
     public WriteTs mostRecentWrite(String key) {
         // 获取 CfWrite 列族的迭代器
         RocksIterator iterator = reader.iterCf(CFConstants.CfWrite);
         try {
             // 定位到第一个大于等于 EncodeKey(key, Long.MAX_VALUE) 的键
-            iterator.seek(TransactionUtil.enCodeKey(key, Long.MAX_VALUE).getBytes());
+            iterator.seekForPrev(TransactionUtil.enCodeKey(key, Long.MAX_VALUE).getBytes());
 
             // 如果迭代器无效，说明没有符合条件的记录
             if (!iterator.isValid()) {

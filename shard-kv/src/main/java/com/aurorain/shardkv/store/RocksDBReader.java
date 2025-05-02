@@ -6,6 +6,8 @@ import lombok.NoArgsConstructor;
 import org.rocksdb.*;
 import java.util.List;
 
+import static com.aurorain.shardkv.store.RocksDBKV.getColumnFamilyHandle;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -18,14 +20,19 @@ public class RocksDBReader {
 
     public String getCf(String cf, String key) throws RocksDBException {
         // 从事务中读取数据
-        return RocksDBKV.get(cfHandles, txn, cf, key);
+        return RocksDBKV.get(db, cfHandles, cf, key);
     }
 
     public RocksIterator iterCf(String cf) {
-        ColumnFamilyHandle cfHandle = RocksDBKV.getColumnFamilyHandle(cfHandles, cf);
-        ReadOptions readOptions = new ReadOptions().setSnapshot(txn.getSnapshot());
-        RocksIterator iter = txn.getIterator(readOptions, cfHandle);
-        return iter;
+//        ColumnFamilyHandle cfHandle = RocksDBKV.getColumnFamilyHandle(cfHandles, cf);
+//        ReadOptions readOptions = new ReadOptions().setSnapshot(txn.getSnapshot());
+//        RocksIterator iter = txn.getIterator(readOptions, cfHandle);
+        ColumnFamilyHandle cfHandle = getColumnFamilyHandle(cfHandles, cf);
+        if (cfHandle == null) {
+            throw new IllegalArgumentException("Column family not found: " + cf);
+        }
+        RocksIterator iterator = db.newIterator(cfHandle);
+        return iterator;
     }
 
     /**

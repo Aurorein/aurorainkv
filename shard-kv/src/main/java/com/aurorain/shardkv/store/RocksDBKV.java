@@ -3,14 +3,19 @@ package com.aurorain.shardkv.store;
 import com.aurorain.shardkv.constant.CFConstants;
 import com.aurorain.shardkv.constant.Message;
 import com.aurorain.shardkv.model.Command;
+import com.aurorain.shardkv.transaction.Lock;
+import lombok.extern.slf4j.Slf4j;
 import org.rocksdb.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+@Slf4j
 public class RocksDBKV implements KV{
 
-    private RocksDB rocksDB;
+    private TransactionDB rocksDB;
+    private TransactionDBOptions txOptions;
+    private List<ColumnFamilyHandle> columnFamilyHandles;
     private String dbPath;
 
     private List<ColumnFamilyDescriptor> columnFamilyDescriptors;
@@ -19,17 +24,28 @@ public class RocksDBKV implements KV{
 
     public RocksDBKV(String dbPath) {
 //        RocksDB.loadLibrary();
-        Options options = new Options().setCreateIfMissing(true);
+        DBOptions options = new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);;
         columnFamilyDescriptors = new ArrayList<>();
         columnFamilyDescriptors.add(new ColumnFamilyDescriptor(CFConstants.CfDefault.getBytes()));
         columnFamilyDescriptors.add(new ColumnFamilyDescriptor(CFConstants.CfLock.getBytes()));
         columnFamilyDescriptors.add(new ColumnFamilyDescriptor(CFConstants.CfWrite.getBytes()));
         this.dbPath = dbPath;
+        txOptions = new TransactionDBOptions();
+        // 列簇句柄列表
+        columnFamilyHandles = new ArrayList<>();
         try {
-            rocksDB = RocksDB.open(options, dbPath);
+            this.rocksDB = TransactionDB.open(options, txOptions, dbPath,
+                    columnFamilyDescriptors, columnFamilyHandles);
         } catch (RocksDBException e) {
             throw new RuntimeException("Failed to open RocksDB", e);
         }
+//        for(ColumnFamilyDescriptor descriptor : columnFamilyDescriptors) {
+//            try {
+//                rocksDB.createColumnFamily(descriptor);
+//            } catch (RocksDBException e) {
+//                throw new RuntimeException(e);
+//            }
+//        }
     }
 
     /**
@@ -85,7 +101,7 @@ public class RocksDBKV implements KV{
         }
     }
 
-    public static String get(List<ColumnFamilyHandle> columnFamilyHandles, Transaction transaction, String cf, String key) {
+    public static String getByTxn(List<ColumnFamilyHandle> columnFamilyHandles, Transaction transaction, String cf, String key) {
         try {
             // 获取列簇句柄
             ColumnFamilyHandle cfHandle = getColumnFamilyHandle(columnFamilyHandles, cf);
@@ -98,6 +114,26 @@ public class RocksDBKV implements KV{
             byte[] valueBytes = transaction.get(cfHandle, readOptions, key.getBytes(StandardCharsets.UTF_8));
 
             // 如果值存在，转换为字符串返回；否则返回 null
+            return valueBytes == null ? null : new String(valueBytes, StandardCharsets.UTF_8);
+        } catch (RocksDBException e) {
+            throw new RuntimeException("Failed to get value from RocksDB", e);
+        }
+    }
+
+    public static String get(TransactionDB rocksDB,
+            List<ColumnFamilyHandle> columnFamilyHandles,
+            String cf,
+            String key) {
+        try {
+            // 获取列簇句柄
+            ColumnFamilyHandle cfHandle = getColumnFamilyHandle(columnFamilyHandles, cf);
+            if (cfHandle == null) {
+                throw new IllegalArgumentException("Column family not found: " + cf);
+            }
+
+            // 直接使用 RocksDB 实例读取
+            byte[] valueBytes = rocksDB.get(cfHandle, key.getBytes(StandardCharsets.UTF_8));
+
             return valueBytes == null ? null : new String(valueBytes, StandardCharsets.UTF_8);
         } catch (RocksDBException e) {
             throw new RuntimeException("Failed to get value from RocksDB", e);
@@ -149,43 +185,33 @@ public class RocksDBKV implements KV{
         return Message.OK;
     }
 
+    /**
+     * 获取数据readview
+     * @return
+     */
     public RocksDBReader openReader() {
-        // 列簇句柄列表
-        List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-
-        // 打开事务数据库
-        TransactionDBOptions txOptions = new TransactionDBOptions();
-        DBOptions options = new DBOptions().setCreateIfMissing(true);
-        TransactionDB txDb = null;
-        try {
-            txDb = TransactionDB.open(options, txOptions, dbPath, columnFamilyDescriptors, columnFamilyHandles);
-        } catch (RocksDBException e) {
-            throw new RuntimeException(e);
-        }
-        Transaction txn = txDb.beginTransaction(new WriteOptions());
-        return new RocksDBReader(txDb, txn, columnFamilyHandles);
+        WriteOptions writeOptions = new WriteOptions();
+        Transaction txn = rocksDB.beginTransaction(writeOptions);
+        return new RocksDBReader(rocksDB, txn, columnFamilyHandles);
     }
 
     @Override
     public void opt(WriteBatch writeBatch) throws Exception {
-        // 列簇句柄列表
-        List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-
         // 打开事务数据库
-        TransactionDBOptions txOptions = new TransactionDBOptions();
-        DBOptions options = new DBOptions().setCreateIfMissing(true);
-        TransactionDB txDb = TransactionDB.open(options, txOptions, dbPath, columnFamilyDescriptors, columnFamilyHandles);
-        try (Transaction transaction = txDb.beginTransaction(new WriteOptions())) {
+        try (Transaction transaction = rocksDB.beginTransaction(new WriteOptions())) {
             // 遍历 WriteBatch 中的每个操作
             for (RocksDBEntry entry : writeBatch.getEntries()) {
                 switch (entry.getType()) {
                     case PUT:
+                    case LOCK:
+                    case WRITE:
                         // 获取列簇句柄
                         ColumnFamilyHandle cfHandle = getColumnFamilyHandle(columnFamilyHandles, entry.getCf());
                         // 执行 PUT 操作
                         transaction.put(cfHandle, entry.getKey().getBytes(StandardCharsets.UTF_8), entry.getValue().getBytes(StandardCharsets.UTF_8));
                         break;
                     case DELETE:
+                    case DELLOCK:
                         // 获取列簇句柄
                         cfHandle = getColumnFamilyHandle(columnFamilyHandles, entry.getCf());
                         // 执行 DELETE 操作
@@ -201,13 +227,7 @@ public class RocksDBKV implements KV{
         } catch (RocksDBException e) {
             throw new RuntimeException("Failed to execute WriteBatch in RocksDB", e);
         } finally {
-            // 关闭资源
-            for (ColumnFamilyHandle handle : columnFamilyHandles) {
-                handle.close();
-            }
-            txDb.close();
-            options.close();
-            txOptions.close();
+
         }
     }
 
@@ -237,6 +257,10 @@ public class RocksDBKV implements KV{
         return new RocksDBIterator();
     }
 
+    public RocksIterator iterator(ColumnFamilyHandle cf) {
+        return rocksDB.newIterator(cf);
+    }
+
     /**
      * RocksDB 迭代器实现
      */
@@ -263,6 +287,31 @@ public class RocksDBKV implements KV{
             String value = new String(iterator.value(), StandardCharsets.UTF_8);
             iterator.next(); // 移动到下一个键值对
             return Map.entry(key, value); // 返回键值对
+        }
+    }
+
+    public void iterateColumnFamily(String columnFamilyName) {
+        // 获取指定列族的句柄
+        ColumnFamilyHandle cfHandle = getColumnFamilyHandle(columnFamilyHandles, columnFamilyName);
+        if (cfHandle == null) {
+            throw new IllegalArgumentException("Column family not found: " + columnFamilyName);
+        }
+
+        // 创建迭代器
+        try (final RocksIterator iterator = rocksDB.newIterator(cfHandle)) {
+            // 定位到第一个键
+            iterator.seekToFirst();
+
+            // 遍历所有键值对
+            while (iterator.isValid()) {
+                String key = new String(iterator.key(), StandardCharsets.UTF_8);
+                String value = new String(iterator.value(), StandardCharsets.UTF_8);
+
+                // 处理键值对
+                log.info("{} Key: {} Value: {}", columnFamilyName, key, value);
+                // 移动到下一个键
+                iterator.next();
+            }
         }
     }
 }

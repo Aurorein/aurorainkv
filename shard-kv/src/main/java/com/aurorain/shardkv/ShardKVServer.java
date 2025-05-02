@@ -6,14 +6,12 @@ import com.aurorain.commonmodule.model.Channel;
 import com.aurorain.raft.Persister;
 import com.aurorain.raft.Raft;
 import com.aurorain.raft.model.dto.ApplyMsg;
-import com.aurorain.shardkv.constant.ActionConstants;
-import com.aurorain.shardkv.constant.CFConstants;
-import com.aurorain.shardkv.constant.TimeConstant;
-import com.aurorain.shardkv.constant.WriteConstants;
+import com.aurorain.shardkv.constant.*;
 import com.aurorain.shardkv.model.*;
 import com.aurorain.shardkv.model.dto.*;
 import com.aurorain.shardkv.transaction.*;
 import com.aurorain.shardkv.transaction.Scanner;
+import com.aurorain.shardkv.tso.TimestampOracle;
 import com.aurorain.shardmaster.ShardClient;
 import com.aurorain.shardmaster.ShardConfig;
 import com.aurorain.shardkv.common.CommandContext;
@@ -30,7 +28,6 @@ import com.aurorain.shardkv.store.RocksDBKV;
 import com.aurorain.shardkv.store.RocksDBReader;
 import com.aurorain.shardkv.store.WriteBatch;
 import io.netty.util.internal.StringUtil;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.rocksdb.RocksIterator;
 
@@ -176,18 +173,15 @@ public class ShardKVServer implements KVServerService {
 
     private RocksDBReader requestReader(CommandRequest request) {
 
-        state.getLock().lock();
         log.info("{} received command request {}", state.getMe(), request);
 
         Command command = request.getCommand();
         CommandType type = command.getType();
         int clientId = command.getClientId();
         int seqId = command.getSeqId();
-        state.getLock().unlock();
 //        log.info("111111111111111111111111111111");
         Command cmd = new Command();
         cmd.setKey(command.getKey());
-        cmd.setValue(command.getValue());
         cmd.setClientId(clientId);
         cmd.setSeqId(seqId);
         cmd.setType(CommandType.SNAP);
@@ -232,27 +226,48 @@ public class ShardKVServer implements KVServerService {
     }
 
     public CommandResponse kvPrewrite(CommandRequest request) {
+//        log.info("kvPreWrite execute");
         if(!state.getRaft().isLeader()) {return new CommandResponse(false, "not leader!");}
+        int seqId = request.getCommand().getSeqId();
+        int clientId = request.getCommand().getClientId();
+        state.getLock().lock();
+        if(isDuplicated(clientId, seqId)) {
+            CommandContext context = state.getLastCmdContext().get(clientId);
+            state.getLock().unlock();
+            return context.getResponse();
+        }
+        state.getLock().unlock();
         RocksDBReader rocksDBReader = requestReader(request);
-        StringBuilder errMsg = new StringBuilder();
+//        StringBuilder errMsg = new StringBuilder();
         if(rocksDBReader == null) {
             log.info("kvPrewrite:rocksdb iterator is null");
-            errMsg.append("rocksdb iterator is null");
+            return new CommandResponse(false, "kvPrewrite:rocksdb iterator is null");
         }
-        PreWriteRequest req = (PreWriteRequest)request;
+
+        CommandResponse commandResponse = new CommandResponse();
+        ArrayList<KeyError> keyErrors = new ArrayList<>();
+        PreWriteArgs req = (PreWriteArgs)request.getCommand().getValue();
         MvccTxn txn = new MvccTxn(req.getStartTs(), rocksDBReader);
 
         for(RocksDBEntry entry : req.getEntries()) {
             WriteTs writeTs = txn.mostRecentWrite(entry.getKey());
-            if(writeTs.getWrite() != null && req.getStartTs() <= writeTs.getTs()) {
-                log.info("write conflict");
-                errMsg.append("entry write config:").append(entry.getKey()).append(",").append(entry.getValue()).append(":");
+            if(writeTs != null && writeTs.getWrite() != null && req.getStartTs() <= writeTs.getTs()) {
+                rocksDBReader.close();
+                log.info("preWrite: write conflict key {}, req ts:{} write ts:{}", entry.getKey(), req.getStartTs(), writeTs.getTs());
+                String errMsg = String.format("preWrite: write conflict key {}, req ts:{} write ts:{}", entry.getKey(), req.getStartTs(), writeTs.getTs()).toString();
+//                return new CommandResponse(false, errMsg, 1);
+
+                keyErrors.add(new KeyError(new WriteConflict(req.getStartTs(), writeTs.getTs(), request.getCommand().getKey(), req.getPrimary())));
                 continue;
             }
             Lock lock = txn.getLock(entry.getKey());
             if(lock != null && lock.getTs() != req.getStartTs()) {
-                log.info("已经有锁了!");
-                errMsg.append("entry has lock:").append(entry.getKey()).append(",").append(entry.getValue()).append(":");
+                rocksDBReader.close();
+                log.info("preWrite: lock conflict key {}", entry.getKey());
+                String errMsg = String.format("preWrite: lock conflict key {}", entry.getKey());
+//                return new CommandResponse(false, errMsg.toString(), 1);
+                keyErrors.add(new KeyError(new LockInfo(lock.getPrimary(), lock.getTs(), request.getCommand().getKey(), lock.getTtl())));
+                continue;
             }
             int kind;
             switch(entry.getType()) {
@@ -263,7 +278,7 @@ public class ShardKVServer implements KVServerService {
                 }
                 case DELETE:{
                     kind = WriteConstants.WRITE_KIND_DELETE;
-                    txn.deleteValue(entry.getKey());
+                    txn.putValue(entry.getKey(), entry.getValue());
                     break;
                 }
                 default:{
@@ -274,6 +289,13 @@ public class ShardKVServer implements KVServerService {
             Lock l = new Lock(req.getPrimary(), req.getStartTs(), req.getLockTtl(), kind);
             txn.putLock(entry.getKey(), l);
 
+        }
+        if(!keyErrors.isEmpty()) {
+            commandResponse.setKeyErrors(keyErrors);
+            commandResponse.setSuccess(false);
+            commandResponse.setErr("key errors");
+            rocksDBReader.close();
+            return commandResponse;
         }
         WriteBatch writeBatch = WriteBatch.getWriteBatch(txn.getWrites());
         CommandResponse response = new CommandResponse();
@@ -328,36 +350,53 @@ public class ShardKVServer implements KVServerService {
             }
         }
 
-        String errMessage = errMsg.toString();
         rocksDBReader.close();
-        return new CommandResponse(false, errMessage);
+        return new CommandResponse(false, "err");
 
     }
 
     public CommandResponse kvCommit(CommandRequest request) {
-        if(!state.getRaft().isLeader()) {return new CommandResponse(false, "wrong leader!");}
-        RocksDBReader rocksDBReader = requestReader(request);
-        CommitRequest req = (CommitRequest) request;
-        MvccTxn mvccTxn = new MvccTxn(req.getStartTs(), rocksDBReader);
-        StringBuilder errMsg = new StringBuilder();
-        try {
-            state.getLatches().waitForLatches(req.getKeys());
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+        if(!state.getRaft().isLeader()) {return new CommandResponse(false, "not leader!");}
+        int seqId = request.getCommand().getSeqId();
+        int clientId = request.getCommand().getClientId();
+        state.getLock().lock();
+        if(isDuplicated(clientId, seqId)) {
+            CommandContext context = state.getLastCmdContext().get(clientId);
+            state.getLock().unlock();
+            return context.getResponse();
         }
+        state.getLock().unlock();
+        RocksDBReader rocksDBReader = requestReader(request);
+        if(rocksDBReader == null) {
+            log.info("kvCommit:rocksdb iterator is null");
+            return new CommandResponse(false, "kvCommit:rocksdb iterator is null");
+        }
+        CommitArgs req = (CommitArgs) request.getCommand().getValue();
+        MvccTxn mvccTxn = new MvccTxn(req.getStartTs(), rocksDBReader);
+//        StringBuilder errMsg = new StringBuilder();
+        state.getLock().lock();
+//        try {
+//            state.getLatches().waitForLatches(req.getKeys());
+//        } catch (InterruptedException e) {
+//            throw new RuntimeException(e);
+//        }
 
         for(String key : req.getKeys()) {
             Lock lock = mvccTxn.getLock(key);
             if(lock == null || lock.getTs() != req.getStartTs()) {
-                state.getLatches().releaseLatches(req.getKeys());
+//                state.getLatches().releaseLatches(req.getKeys());
                 rocksDBReader.close();
-                return new CommandResponse(false, "key entry get lock error" + key + ":");
+                state.getLock().unlock();
+                log.info("commit: lock conflict key {}", key);
+                String errMsg = String.format("preWrite: write conflict key {}", key);
+                return new CommandResponse(false, errMsg, TxnConstants.ROLLBACK);
             }
 
             mvccTxn.putWrite(key, req.getCommitTs(), new Write(req.getStartTs(), lock.getKind()));
             mvccTxn.deleteLock(key);
         }
         WriteBatch writeBatch = WriteBatch.getWriteBatch(mvccTxn.getWrites());
+        log.info("kvCommit writeBatch: {}", writeBatch);
         CommandResponse response = new CommandResponse();
         Command cmd = new Command();
         Command command = request.getCommand();
@@ -369,6 +408,7 @@ public class ShardKVServer implements KVServerService {
         // 将命令追加到 raft 之中，随后开启通道等待来自 applier 的消息
         Raft raft = state.getRaft();
         int index = raft.startCmd(cmd);
+        state.getLock().unlock();
         int term = raft.getTerm();
         // 检查状态，是否为 leader
         if (index == -1) {
@@ -376,7 +416,7 @@ public class ShardKVServer implements KVServerService {
             response.setSuccess(false);
             response.setErr(com.aurorain.shardkv.constant.Message.WRONG_LEADER);
             log.info("wrong leader, id is {}", state.getMe());
-            state.getLatches().releaseLatches(req.getKeys());
+//            state.getLatches().releaseLatches(req.getKeys());
             rocksDBReader.close();
             return response;
         }
@@ -399,7 +439,7 @@ public class ShardKVServer implements KVServerService {
                 // 销毁通道
                 state.getCmdResponseChannels().remove(it);
                 state.getLock().unlock();
-                state.getLatches().releaseLatches(req.getKeys());
+//                state.getLatches().releaseLatches(req.getKeys());
                 rocksDBReader.close();
                 return res;
             }
@@ -407,29 +447,41 @@ public class ShardKVServer implements KVServerService {
             try {
                 Thread.sleep(com.aurorain.shardkv.constant.TimeConstant.GAP_TIME);
             } catch (InterruptedException e) {
-                state.getLatches().releaseLatches(req.getKeys());
+//                state.getLatches().releaseLatches(req.getKeys());
                 rocksDBReader.close();
                 throw new RuntimeException(e);
             }
         }
 
-        String errMessage = errMsg.toString();
-        state.getLatches().releaseLatches(req.getKeys());
+//        String errMessage = errMsg.toString();
+//        state.getLatches().releaseLatches(req.getKeys());
         rocksDBReader.close();
-        return new CommandResponse(false, errMessage);
+        return new CommandResponse(false, "err");
 
     }
 
     public CommandResponse kvGet(CommandRequest request) {
+        if(!state.getRaft().isLeader()) {return new CommandResponse(false, "not leader!");}
         RocksDBReader rocksDBReader = requestReader(request);
-        TCommandRequest req = (TCommandRequest) request;
+        if(rocksDBReader == null) {
+            log.info("kvGet:rocksdb iterator is null");
+            return new CommandResponse(false, "kvGet:rocksdb iterator is null");
+        }
+        GetArgs req = (GetArgs) request.getCommand().getValue();
         MvccTxn txn = new MvccTxn(req.getTs(), rocksDBReader);
-        Lock lock = txn.getLock(req.getCommand().getKey());
+        Lock lock = txn.getLock(request.getCommand().getKey());
         if(lock != null && req.getTs() >= lock.getTs()) {
             rocksDBReader.close();
-            return new CommandResponse(false, "kvGet:lock entry error for key:" + req.getCommand().getKey());
+            log.info("kvGet: lock conflict key {}", request.getCommand().getKey());
+            String errMsg = String.format("kvGet: lock conflict key {}", request.getCommand().getKey());
+            // 事务还正在执行中，不能读取
+            List<KeyError> keyErrors = new ArrayList<>();
+            keyErrors.add(new KeyError(new LockInfo(lock.getPrimary(), lock.getTs(), request.getCommand().getKey(), lock.getTtl())));
+            CommandResponse response = new CommandResponse(false, errMsg, TxnConstants.READ_LOCKCONFLICT);
+            response.setKeyErrors(keyErrors);
+            return response;
         }
-        String value = txn.getValue(req.getCommand().getKey());
+        String value = txn.getValue(request.getCommand().getKey());
         CommandResponse response = new CommandResponse();
         response.setSuccess(true);
         response.setValue(value);
@@ -437,149 +489,200 @@ public class ShardKVServer implements KVServerService {
         return response;
     }
 
-    public CommandResponse kvScan(CommandRequest request) {
-        RocksDBReader rocksDBReader = requestReader(request);
-        ScanRequest req = (ScanRequest) request;
-        MvccTxn txn = new MvccTxn(req.getTs(), rocksDBReader);
-        Scanner scanner = new Scanner(req.getStartKey(), txn);
-        List<KVPair> kvPairs = new ArrayList<>();
-        StringBuilder errMsg = new StringBuilder();
-        for(int i = 0;i < req.getLimit(); ++i) {
-            KVPair pair = scanner.next();
-            if(StringUtil.isNullOrEmpty(pair.getKey())) {
-                break;
-            }
-            Lock lock = txn.getLock(pair.getKey());
-            if(lock == null && req.getTs() >= lock.getTs()) {
-                errMsg.append("lock for key:" + pair.getKey());
-                continue;
-            }
-            if(!StringUtil.isNullOrEmpty(pair.getValue())) {
-                kvPairs.add(pair);
-            }
-        }
-        CommandResponse response = new CommandResponse();
-        response.setSuccess(true);
-        response.setErr(errMsg.toString());
-        response.setValue(kvPairs);
-        rocksDBReader.close();
-        return response;
-    }
+//    public CommandResponse kvScan(CommandRequest request) {
+//        RocksDBReader rocksDBReader = requestReader(request);
+//        ScanRequest req = (ScanRequest) request;
+//        MvccTxn txn = new MvccTxn(req.getTs(), rocksDBReader);
+//        Scanner scanner = new Scanner(req.getStartKey(), txn);
+//        List<KVPair> kvPairs = new ArrayList<>();
+//        StringBuilder errMsg = new StringBuilder();
+//        for(int i = 0;i < req.getLimit(); ++i) {
+//            KVPair pair = scanner.next();
+//            if(StringUtil.isNullOrEmpty(pair.getKey())) {
+//                break;
+//            }
+//            Lock lock = txn.getLock(pair.getKey());
+//            if(lock == null && req.getTs() >= lock.getTs()) {
+//                errMsg.append("lock for key:" + pair.getKey());
+//                continue;
+//            }
+//            if(!StringUtil.isNullOrEmpty(pair.getValue())) {
+//                kvPairs.add(pair);
+//            }
+//        }
+//        CommandResponse response = new CommandResponse();
+//        response.setSuccess(true);
+//        response.setErr(errMsg.toString());
+//        response.setValue(kvPairs);
+//        rocksDBReader.close();
+//        return response;
+//    }
 
     public CommandResponse kvCheckTxnStatus(CommandRequest request) {
         if(!state.getRaft().isLeader()) {return new CommandResponse(false, "not leader");}
+        int seqId = request.getCommand().getSeqId();
+        int clientId = request.getCommand().getClientId();
+        state.getLock().lock();
+        if(isDuplicated(clientId, seqId)) {
+            CommandContext context = state.getLastCmdContext().get(clientId);
+            state.getLock().unlock();
+            return context.getResponse();
+        }
+        state.getLock().unlock();
         RocksDBReader rocksDBReader = requestReader(request);
-        CheckTxnStatusRequest req = (CheckTxnStatusRequest) request;
+        if(rocksDBReader == null) {
+            log.info("kvCheckTxnStatus:rocksdb iterator is null");
+            return new CommandResponse(false, "kvCheckTxnStatus:rocksdb iterator is null");
+        }
+        CheckTxnStatusArgs req = (CheckTxnStatusArgs) request.getCommand().getValue();
         MvccTxn txn = new MvccTxn(req.getLockTs(), rocksDBReader);
         WriteTs writeTs = txn.currentWrite(req.getPrimaryKey());
-        Write write = writeTs.getWrite();
-        CheckTxnStatusResponse response = new CheckTxnStatusResponse();
-        if(write != null) {
-            if(write.getWriteKind() != WriteConstants.WRITE_KIND_ROLLBACK) {
-                response.setCommitTs(writeTs.getTs());
-            }
+        CommandResponse response = new CommandResponse();
+        CheckTxnStatusReply checkTxnStatusReply = new CheckTxnStatusReply();
+        checkTxnStatusReply.setCommitTs(0);
+        checkTxnStatusReply.setLockTtl(0);
+        response.setValue(checkTxnStatusReply);
+        if(writeTs != null && writeTs.getWrite().getWriteKind() != WriteConstants.WRITE_KIND_ROLLBACK) {
+            // 说明事务已经提交了
+            checkTxnStatusReply.setCommitTs(writeTs.getTs());
             rocksDBReader.close();
+            log.info("c1");
             return response;
         }
         Lock lock = txn.getLock(req.getPrimaryKey());
         if(lock == null) {
-            txn.putWrite(req.getPrimaryKey(), req.getLockTs(), new Write(req.getLockTs(), WriteConstants.WRITE_KIND_ROLLBACK));
-            rocksDBReader.close();
-            return response;
+            // primary key已经回滚，则事务回滚
+//            if(write.getWriteKind() == WriteConstants.WRITE_KIND_ROLLBACK) {
+//                response.setTxnAction(TxnConstants.ACTION_NOACTION);
+//                rocksDBReader.close();
+//                return response;
+//            } else {
+//            txn.putWrite(req.getPrimaryKey(), req.getLockTs(), new Write(req.getLockTs(), WriteConstants.WRITE_KIND_ROLLBACK));
+            log.info("c2");
+            response.setTxnAction(TxnConstants.ACTION_LOCKNOTEXISTSROLLBACK);
+//            }
         }
-        if(TransactionUtil.physicalTime(lock.getTs()) + lock.getTtl() <= TransactionUtil.physicalTime(req.getCommitTs())) {
+        // 如果lock过期了，事务回滚
+        else if(TimestampOracle.physicalTime(lock.getTs()) + lock.getTtl() <= TimestampOracle.physicalTime(req.getCommitTs())) {
+            // 说明发生了crash，roll-forward清理
             txn.deleteLock(req.getPrimaryKey());
             txn.deleteValue(req.getPrimaryKey());
             txn.putWrite(req.getPrimaryKey(), req.getLockTs(), new Write(req.getLockTs(), WriteConstants.WRITE_KIND_ROLLBACK));
-            WriteBatch writeBatch = WriteBatch.getWriteBatch(txn.getWrites());
-            Command cmd = new Command();
-            Command command = request.getCommand();
-            cmd.setType(CommandType.WRITEBATCH);
-            cmd.setKey(command.getKey());
-            cmd.setValue(writeBatch);
-            cmd.setClientId(command.getClientId());
-            cmd.setSeqId(command.getSeqId());
-            // 将命令追加到 raft 之中，随后开启通道等待来自 applier 的消息
-            Raft raft = state.getRaft();
-            int index = raft.startCmd(cmd);
-            int term = raft.getTerm();
-            // 检查状态，是否为 leader
-            if (index == -1) {
-                response.setValue("");
-                response.setSuccess(false);
-                response.setErr(com.aurorain.shardkv.constant.Message.WRONG_LEADER);
-                log.info("wrong leader, id is {}", state.getMe());
+            log.info("c3");
+            response.setTxnAction(TxnConstants.ACTION_TTLEXPIREROLLBACK);
+        } else {
+            checkTxnStatusReply.setLockTtl(TimestampOracle.physicalTime(lock.getTs()) + lock.getTtl() - TimestampOracle.physicalTime(req.getCommitTs()));
+            rocksDBReader.close();
+            log.info("c4");
+            return response;
+        }
+        WriteBatch writeBatch = WriteBatch.getWriteBatch(txn.getWrites());
+        Command cmd = new Command();
+        Command command = request.getCommand();
+        cmd.setType(CommandType.WRITEBATCH);
+        cmd.setKey(command.getKey());
+        cmd.setValue(writeBatch);
+        cmd.setClientId(command.getClientId());
+        cmd.setSeqId(command.getSeqId());
+        // 将命令追加到 raft 之中，随后开启通道等待来自 applier 的消息
+        Raft raft = state.getRaft();
+        int index = raft.startCmd(cmd);
+        int term = raft.getTerm();
+        // 检查状态，是否为 leader
+        if (index == -1) {
+            response.setValue("");
+            response.setSuccess(false);
+            response.setErr(com.aurorain.shardkv.constant.Message.WRONG_LEADER);
+            log.info("wrong leader, id is {}", state.getMe());
+            rocksDBReader.close();
+            return response;
+        }
+        log.info("correct leader, id is {}", state.getMe());
+        state.getLock().lock();
+        // 新建一个通道，供 applier 写入，该函数只创建通道和读取通道的信息
+        ShardIndexAndTerm it = new ShardIndexAndTerm(index, term);
+        Channel<CommandResponse> channel = new Channel<>(1);
+        state.getCmdResponseChannels().put(it, channel);
+        state.getLock().unlock();
+//        log.info("3333333333333333333333333");
+        // 在一定的时间段里反复读取通道里的消息
+        LocalDateTime time = LocalDateTime.now().plus(com.aurorain.shardkv.constant.TimeConstant.CMD_TIMEOUT, ChronoUnit.MILLIS);
+        while (LocalDateTime.now().isBefore(time)) {
+            state.getLock().lock();
+            CommandResponse res = null;
+//            log.info("没有收到applier");
+            if ((res = channel.read()) != null) {
+                log.info("{} had applied, {}", state.getMe(), res);
+                // 销毁通道
+                state.getCmdResponseChannels().remove(it);
+                state.getLock().unlock();
+                response.setSuccess(true);
+                response.setValue(res.getValue());
+//                response.setTxnAction(TxnConstants.ACTION_TTLEXPIREROLLBACK);
                 rocksDBReader.close();
                 return response;
             }
-            log.info("correct leader, id is {}", state.getMe());
-            state.getLock().lock();
-            // 新建一个通道，供 applier 写入，该函数只创建通道和读取通道的信息
-            ShardIndexAndTerm it = new ShardIndexAndTerm(index, term);
-            Channel<CommandResponse> channel = new Channel<>(1);
-            state.getCmdResponseChannels().put(it, channel);
             state.getLock().unlock();
-//        log.info("3333333333333333333333333");
-            // 在一定的时间段里反复读取通道里的消息
-            LocalDateTime time = LocalDateTime.now().plus(com.aurorain.shardkv.constant.TimeConstant.CMD_TIMEOUT, ChronoUnit.MILLIS);
-            while (LocalDateTime.now().isBefore(time)) {
-                state.getLock().lock();
-                CommandResponse res = null;
-//            log.info("没有收到applier");
-                if ((res = channel.read()) != null) {
-                    log.info("{} had applied, {}", state.getMe(), res);
-                    // 销毁通道
-                    state.getCmdResponseChannels().remove(it);
-                    state.getLock().unlock();
-                    response.setSuccess(true);
-                    response.setValue(res.getValue());
-                    response.setAction(ActionConstants.ACTION_TTLEXPIREROLLBACK);
-                    rocksDBReader.close();
-                    return response;
-                }
-                state.getLock().unlock();
-                try {
-                    Thread.sleep(com.aurorain.shardkv.constant.TimeConstant.GAP_TIME);
-                } catch (InterruptedException e) {
-                    rocksDBReader.close();
-                    throw new RuntimeException(e);
-                }
+            try {
+                Thread.sleep(com.aurorain.shardkv.constant.TimeConstant.GAP_TIME);
+            } catch (InterruptedException e) {
+                rocksDBReader.close();
+                throw new RuntimeException(e);
             }
-
         }
+
         response.setSuccess(false);
         return response;
 
     }
 
     public CommandResponse KvBatchRollback(CommandRequest request) {
-        if(!state.getRaft().isLeader()) {return new CommandResponse(false, "error msg!");}
-        RocksDBReader rocksDBReader = requestReader(request);
-        BatchRollbackRequest req = (BatchRollbackRequest) request;
-        MvccTxn txn = new MvccTxn(req.getStartTs(), rocksDBReader);
-        try {
-            state.getLatches().waitForLatches(req.getKeys());
-        } catch (InterruptedException e) {
-            rocksDBReader.close();
-            throw new RuntimeException(e);
+        if(!state.getRaft().isLeader()) {return new CommandResponse(false, "not leader!");}
+        int seqId = request.getCommand().getSeqId();
+        int clientId = request.getCommand().getClientId();
+        state.getLock().lock();
+        if(isDuplicated(clientId, seqId)) {
+            CommandContext context = state.getLastCmdContext().get(clientId);
+            state.getLock().unlock();
+            return context.getResponse();
         }
+        state.getLock().unlock();
+        RocksDBReader rocksDBReader = requestReader(request);
+        if(rocksDBReader == null) {
+            log.info("kvBatchRollBack:rocksdb iterator is null");
+            return new CommandResponse(false, "kvBatchRollBack:rocksdb iterator is null");
+        }
+        BatchRollbackArgs req = (BatchRollbackArgs) request.getCommand().getValue();
+        MvccTxn txn = new MvccTxn(req.getStartTs(), rocksDBReader);
+//        try {
+//            state.getLatches().waitForLatches(req.getKeys());
+//        } catch (InterruptedException e) {
+//            rocksDBReader.close();
+//            throw new RuntimeException(e);
+//        }
+        state.getLock().lock();
         for(String key : req.getKeys()) {
             WriteTs writeTs = txn.currentWrite(key);
-            Write write = writeTs.getWrite();
-            if(write != null) {
+            if(writeTs != null) {
+                Write write = writeTs.getWrite();
                 if(write.getWriteKind() == WriteConstants.WRITE_KIND_ROLLBACK) {
+                    // 事务已经回滚了
                     continue;
                 } else {
+                    // 事务已经提交了，操作终止
                     rocksDBReader.close();
-                    state.getLatches().releaseLatches(req.getKeys());
-                    return new CommandResponse(false, "key error!");
+//                    state.getLatches().releaseLatches(req.getKeys());
+                    state.getLock().unlock();
+                    return new CommandResponse(false, "key error!", TxnConstants.ABORT);
                 }
             }
             Lock lock = txn.getLock(key);
             if(lock == null || lock.getTs() != req.getStartTs()) {
+                // TODO is it right?
                 txn.putWrite(key, req.getStartTs(), new Write(req.getStartTs(), WriteConstants.WRITE_KIND_ROLLBACK));
                 continue;
             }
+            // 正常执行回滚
             txn.deleteLock(key);
             txn.deleteValue(key);
             txn.putWrite(key, req.getStartTs(), new Write(req.getStartTs(), WriteConstants.WRITE_KIND_ROLLBACK));
@@ -596,6 +699,7 @@ public class ShardKVServer implements KVServerService {
         // 将命令追加到 raft 之中，随后开启通道等待来自 applier 的消息
         Raft raft = state.getRaft();
         int index = raft.startCmd(cmd);
+        state.getLock().unlock();
         int term = raft.getTerm();
         // 检查状态，是否为 leader
         if (index == -1) {
@@ -604,7 +708,7 @@ public class ShardKVServer implements KVServerService {
             response.setErr(com.aurorain.shardkv.constant.Message.WRONG_LEADER);
             log.info("wrong leader, id is {}", state.getMe());
             rocksDBReader.close();
-            state.getLatches().releaseLatches(req.getKeys());
+//            state.getLatches().releaseLatches(req.getKeys());
             return response;
         }
         log.info("correct leader, id is {}", state.getMe());
@@ -629,7 +733,7 @@ public class ShardKVServer implements KVServerService {
                 response.setSuccess(true);
                 response.setValue(res.getValue());
                 rocksDBReader.close();
-                state.getLatches().releaseLatches(req.getKeys());
+//                state.getLatches().releaseLatches(req.getKeys());
                 return response;
             }
             state.getLock().unlock();
@@ -637,24 +741,39 @@ public class ShardKVServer implements KVServerService {
                 Thread.sleep(com.aurorain.shardkv.constant.TimeConstant.GAP_TIME);
             } catch (InterruptedException e) {
                 rocksDBReader.close();
-                state.getLatches().releaseLatches(req.getKeys());
+//                state.getLatches().releaseLatches(req.getKeys());
                 throw new RuntimeException(e);
             }
         }
         rocksDBReader.close();
-        state.getLatches().releaseLatches(req.getKeys());
+//        state.getLatches().releaseLatches(req.getKeys());
         return new CommandResponse(false, "");
 
     }
 
     public CommandResponse kvResolveLock(CommandRequest request) {
+        if(!state.getRaft().isLeader()) {return new CommandResponse(false, "not leader!");}
+        int seqId = request.getCommand().getSeqId();
+        int clientId = request.getCommand().getClientId();
+        state.getLock().lock();
+        if(isDuplicated(clientId, seqId)) {
+            CommandContext context = state.getLastCmdContext().get(clientId);
+            state.getLock().unlock();
+            return context.getResponse();
+        }
+        state.getLock().unlock();
         RocksDBReader rocksDBReader = requestReader(request);
-        ResolveLockRequest req = (ResolveLockRequest) request;
+        if(rocksDBReader == null) {
+            log.info("kvResolveLock:rocksdb iterator is null");
+            return new CommandResponse(false, "kvResolveLock:rocksdb iterator is null");
+        }
+        ResolveLockArgs req = (ResolveLockArgs) request.getCommand().getValue();
         RocksIterator iterator = rocksDBReader.iterCf(CFConstants.CfLock);
         List<String> keys = new ArrayList<>();
-        for(;iterator.isValid();iterator.next()) {
+        for(iterator.seekToFirst();iterator.isValid();iterator.next()) {
             String value = new String(iterator.value());
             Lock lock = Lock.parse(value);
+//            log.info("4444 lock: {}", lock);
             if(lock.getTs() == req.getStartTs()) {
                 keys.add(new String(iterator.key()));
             }
@@ -665,9 +784,14 @@ public class ShardKVServer implements KVServerService {
             return new CommandResponse(true, "keys is empty");
         }
         if(req.getCommitTs() == 0) {
-            return new CommandResponse(true,  "commitTs == 0");
+//            return new CommandResponse(true,  "commitTs == 0");
+            CommandResponse response = new CommandResponse(true, "rollback", TxnConstants.ACTION_ROLLBACK);
+            response.setValue(keys);
+            return response;
         } else {
-            return new CommandResponse(true, "");
+            CommandResponse response = new CommandResponse(true, "commit", TxnConstants.ACTION_COMMIT);
+            response.setValue(keys);
+            return response;
         }
     }
 
@@ -716,16 +840,25 @@ public class ShardKVServer implements KVServerService {
                         RocksDBReader rocksDBReader = state.getStore().openReader();
                         response.setValue(rocksDBReader);
                         response.setSuccess(true);
+                        // 因为类似于read，所以不需要也不应该加入LastCmdContext（加入的话会影响kvPreWrite这样的读写组合操作）
 //                        CommandContext context = new CommandContext(seqId, response);
 //                        state.getLastCmdContext().put(clientId, context);
                     } else if(command.getType() == CommandType.WRITEBATCH) {
-                        WriteBatch writeBatch = (WriteBatch)command.getValue();
-                        try {
-                            state.getStore().opt(writeBatch);
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
+                        if(isDuplicated(clientId, seqId)) {
+                            CommandContext context = state.getLastCmdContext().get(clientId);
+                            response = context.getResponse();
+                        } else {
+                            WriteBatch writeBatch = (WriteBatch)command.getValue();
+                            try {
+                                state.getStore().opt(writeBatch);
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                            response.setSuccess(true);
+                            // 更新命令上下文
+                            CommandContext context = new CommandContext(seqId, response);
+                            state.getLastCmdContext().put(clientId, context);
                         }
-                        response.setSuccess(true);
                     } else if (command.getType() != CommandType.GET && isDuplicated(clientId, seqId)) {
                         // 如果存在对应的命令记录则获取 response
                         CommandContext context = state.getLastCmdContext().get(clientId);
@@ -772,7 +905,7 @@ public class ShardKVServer implements KVServerService {
                     // follower 会在每次生成快照后进入这个分支一次，raft 和 kv server 同时完成快照的安装
                     if (state.getRaft().condInstallSnapshot(applyMsg.getSnapShotTerm(), applyMsg.getSnapShotIndex(), applyMsg.getSnapShot())) {
                         installSnapshot(applyMsg.getSnapShot());
-                        state.setLastApplied(applyMsg. getSnapShotIndex());
+                        state.setLastApplied(applyMsg.getSnapShotIndex());
                     }
                     state.getLock().unlock();
                 }
@@ -917,8 +1050,8 @@ public class ShardKVServer implements KVServerService {
         // 只有一个是leader
         for(Integer sid : config.getGroups().get(gid)) {
             if(isOk) break;
-            CommandResponse<MigrateReply> response = state.getClient().rpcCall(args.toString(), "", CommandType.SHARDMIGRATE, state.getClient().getKvServices(gid).get(sid), CommandType.SHARDMIGRATE.getDescription());
-            MigrateReply reply = response.getValue();
+            CommandResponse response = state.getClient().rpcCall(args.toString(), "", CommandType.SHARDMIGRATE, state.getClient().getKvServices(gid).get(sid), CommandType.SHARDMIGRATE.getDescription());
+            MigrateReply reply = (MigrateReply) response.getValue();
             if(!reply.isLeader()) continue;
             if(response.isSuccess()) {
                 isOk = true;
@@ -1029,7 +1162,7 @@ public class ShardKVServer implements KVServerService {
                 state.getStore().put(entry.getKey(), entry.getValue());
             }
             for(Map.Entry<Integer,CommandContext> entry : reply.getClientReqId().entrySet()) {
-                if(entry.getValue().getSeqId() > state.getLastCmdContext().get(entry.getKey()).getSeqId()) {
+                if(state.getLastCmdContext().get(entry.getKey()) == null || entry.getValue().getSeqId() > state.getLastCmdContext().get(entry.getKey()).getSeqId()) {
                     state.getLastCmdContext().put(entry.getKey(), entry.getValue());
                 }
             }
@@ -1057,8 +1190,8 @@ public class ShardKVServer implements KVServerService {
         boolean isOk = false;
         for(Integer sid : config.getGroups().get(gid)) {
             if(isOk) break;
-            CommandResponse<GarbagesCollectReply> response = state.getClient().rpcCall("random", args.toString(), CommandType.GARBAGESCOLLECT, state.getClient().getKvServices(gid).get(sid), CommandType.GARBAGESCOLLECT.getDescription());
-            GarbagesCollectReply reply = response.getValue();
+            CommandResponse response = state.getClient().rpcCall("random", args.toString(), CommandType.GARBAGESCOLLECT, state.getClient().getKvServices(gid).get(sid), CommandType.GARBAGESCOLLECT.getDescription());
+            GarbagesCollectReply reply = (GarbagesCollectReply) response.getValue();
             if(!reply.isLeader() || !reply.isOk()) continue;
             isOk = true;
             state.getLock().lock();
@@ -1075,7 +1208,7 @@ public class ShardKVServer implements KVServerService {
 
     public CommandResponse garbagesCollect(CommandRequest request) {
         Command command1 = request.getCommand();
-        GarbagesCollectArgs args = GarbagesCollectArgs.fromString(command1.getKey());
+        GarbagesCollectArgs args = GarbagesCollectArgs.fromString((String)command1.getValue());
         CommandResponse response = new CommandResponse<>();
         GarbagesCollectReply reply = new GarbagesCollectReply();
         response.setSuccess(false);

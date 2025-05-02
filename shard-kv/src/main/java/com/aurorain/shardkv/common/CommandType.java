@@ -19,8 +19,9 @@ public enum CommandType {
     DELETE(8, "delete"),
     WRITE(9, "write"),
     LOCK(10, "lock"),
-    SNAP(11, "snap"),
-    WRITEBATCH(12, "writeBatch");
+    DELLOCK(11, "deleteLock"),
+    SNAP(12, "snap"),
+    WRITEBATCH(13, "writeBatch");
 
 
 

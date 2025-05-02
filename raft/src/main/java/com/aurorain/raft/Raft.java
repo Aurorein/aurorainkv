@@ -68,9 +68,9 @@ public class Raft implements RaftService {
 
         addShutdownHook();
 
-        // 为了前端展示raft
+        // TODO 为了前端展示raft
         if(isShardMaster) {
-            this.messagingTemplate = SpringContextUtil.getBean(SimpMessagingTemplate.class);
+//            this.messagingTemplate = SpringContextUtil.getBean(SimpMessagingTemplate.class);
             // 添加短暂延迟确保连接建立
 //            try {   v
 //                Thread.sleep(500);
@@ -107,13 +107,10 @@ public class Raft implements RaftService {
         // 尝试获取锁,避免死锁,如果获取不到则说明对方也在发起选举
         boolean tried = state.getLock().tryLock();
         if (!tried) {
-//            log.info("fail to get lock of raft:{}", state.getMe());
             return null;
         }
 
         RequestVoteResponse response = new RequestVoteResponse();
-//        log.info("raft:{} receive RequestVoteRequest:{}", state.getMe(), request);
-//        log.info("raft:{} current state:term:{}, votedFor:{}, lastLog:{}", state.getMe(), state.getCurrentTerm(), state.getVotedFor(), getLastLog());
 
         if (request.getTerm() < state.getCurrentTerm()) {
             response.setVoteGranted(false);
@@ -148,6 +145,7 @@ public class Raft implements RaftService {
             return response;
         }
 
+        // 已经投过了，同一个任期里面只会投一次
         log("raft:{} 拒绝投给raft:{}一票在任期:{}", state.getMe(), request.getCandidateId(), getTerm());
         response.setVoteGranted(false);
         response.setTerm(state.getCurrentTerm());
@@ -164,24 +162,24 @@ public class Raft implements RaftService {
     @Override
     public AppendEntriesResponse requestAppendEntries(AppendEntriesRequest request) {
         state.getLock().lock();
-//        log.info("raft:{} receives appending request:{}", state.getMe(), request);
+//        System.out.println(999 +”raft“ + state.getMe());
         AppendEntriesResponse response = new AppendEntriesResponse();
 
         if (request.getTerm() < state.getCurrentTerm()) {
             response.setTerm(state.getCurrentTerm());
             response.setSucceeded(false);
             state.getLock().unlock();
-//            log.info("{} term {} is larger than {} term {}", request.getLeaderId(), request.getTerm(), state.getMe(), state.getCurrentTerm());
             return response;
         }
 
-        // 检查状态
+        // 检查状态（3.3）
         if (request.getTerm() > state.getCurrentTerm()) {
             state.setCurrentTerm(request.getTerm());
             state.setVotedFor(-1);
             turnTo(RaftConstant.FOLLOWER);
         }
 
+        // Candidate -> Follower
         if (state.getState() != RaftConstant.FOLLOWER) {
             turnTo(RaftConstant.FOLLOWER);
         }
@@ -189,7 +187,6 @@ public class Raft implements RaftService {
         response.setSucceeded(true);
         response.setTerm(state.getCurrentTerm());
         resetElectionTimer();
-//        log.info("raft:{} resets electionTimer", state.getMe());
 
         // 检查发来的日志是否过时
         if (request.getPreLogIndex() < getFrontLog().getIndex()) {
@@ -213,10 +210,7 @@ public class Raft implements RaftService {
         // 寻找最旧的冲突日志索引位置（term 相同，index 最小，设置 response 的 conflict 参数）
         int index = transfer(request.getPreLogIndex());
         Entry[] logs = state.getLogs();
-//        log.info("raft:{}, preLogIndex:{}, transferIndex:{}, lastLog:{}", state.getMe(), request.getPreLogIndex(), index, getLastLog());
-//        log.info("raft:{}, lastApplied:{}, commitIndex:{}", state.getMe(), state.getLastApplied(), state.getCommitIndex());
         if (index != -1 && logs[index].getTerm() != request.getPreLogTerm()) {
-//            log.info("raft:{}: a conflict occurred at index {}", state.getMe(), index);
             response.setSucceeded(false);
             response.setConflictTerm(logs[index].getTerm());
             response.setConflictIndex(request.getPreLogIndex());
@@ -237,8 +231,7 @@ public class Raft implements RaftService {
             if (isConflict(request)) {
                 state.setLogs(ArrayUtil.sub(state.getLogs(), 0, index + 1));
                 state.setLogs(ArrayUtil.append(state.getLogs(), request.getEntries()));
-//                log.info("raft:{}: truncate logs at index:{}", state.getMe(), index);
-//                log.info("raft:{} appended logs:{}", state.getMe(), state.getLogs());
+//
             }
         } else {
 //            log.info("raft:{}: length of entries is zero", state.getMe());
@@ -286,7 +279,7 @@ public class Raft implements RaftService {
         resetElectionTimer();
 
         if (request.getLastIncludedIndex() <= state.getCommitIndex()) {
-//            log.info("snapshot from {} was too old", request.getLeaderId());
+//
             state.getLock().unlock();
             return response;
         }
@@ -299,7 +292,6 @@ public class Raft implements RaftService {
                 applyMsg.setSnapShot(request.getData());
                 applyMsg.setSnapShotTerm(request.getLastIncludedTerm());
                 applyMsg.setSnapShotIndex(request.getLastIncludedIndex());
-//                log.info("{} applied snapshot {} to application", state.getMe(), applyMsg);
                 state.getChannel().writeOne(applyMsg);
             }).get();
         } catch (Exception e) {
@@ -450,6 +442,7 @@ public class Raft implements RaftService {
             // 第二次则会选择 doInstallSnapshot，以快照的形式复制日志给 follower
             if (getFrontLog().getIndex() > state.getNextIndex().get(server) - 1) {
                 // 恢复快照线程
+                // TODO 有bug?
                 new Thread(() -> doInstallSnapshot(server)).start();
             } else {
                 // 日志复制线程
@@ -561,6 +554,7 @@ public class Raft implements RaftService {
                 }
             }
         } else {
+//            不在server frontLog - lastLog的范围内
             log("raft:{} 日志复制到 raft:{} 失败，更新 nextIndex 为{}", state.getMe(), server, response.getConflictIndex() + 1);
             state.getNextIndex().put(server, response.getConflictIndex() + 1);
         }
@@ -676,13 +670,6 @@ public class Raft implements RaftService {
         }
     }
 
-    /**
-     * 发送投票请求
-     *
-     * @param server
-     * @param request
-     * @return
-     */
     public RequestVoteResponse sendRequestVote(int server, RequestVoteRequest request) {
         Map<Integer, RaftService> peers = state.getPeers();
         RequestVoteResponse response;
@@ -694,13 +681,6 @@ public class Raft implements RaftService {
         return response;
     }
 
-    /**
-     * 发送追加条目请求
-     *
-     * @param server
-     * @param request
-     * @return
-     */
     public AppendEntriesResponse sendAppendEntries(int server, AppendEntriesRequest request) {
         Map<Integer, RaftService> peers = state.getPeers();
         AppendEntriesResponse response;
@@ -724,9 +704,6 @@ public class Raft implements RaftService {
         return response;
     }
 
-    /**
-     * 发送心跳
-     */
     public void heartbeat() {
         Map<Integer, RaftService> peers = state.getPeers();
         while (!killed()) {
@@ -751,22 +728,12 @@ public class Raft implements RaftService {
         }
     }
 
-    /**
-     * 获取日志的最后一个条目
-     *
-     * @return
-     */
     public Entry getLastLog() {
         Entry[] logs = state.getLogs();
         int n = logs.length;
         return logs[n - 1];
     }
 
-    /**
-     * 获取日志的第一个条目
-     *
-     * @return
-     */
     public Entry getFrontLog() {
         Entry[] logs = state.getLogs();
         return logs[0];
@@ -788,12 +755,6 @@ public class Raft implements RaftService {
         return index - begin;
     }
 
-    /**
-     * 根据日志索引获取对应的日志
-     *
-     * @param index
-     * @return
-     */
     public Entry getEntry(int index) {
         int transfer = transfer(index);
         if (transfer == -1) {
@@ -849,6 +810,7 @@ public class Raft implements RaftService {
             if (entry == null) {
                 continue;
             }
+            // 不会处理不是当前任期的日志？TODO 这样是否合理？数据一致性影响？
             if (entry.getTerm() != state.getCurrentTerm()) {
                 return;
             }
@@ -1177,7 +1139,7 @@ public class Raft implements RaftService {
         }
 
         // 2. 控制台输出用于调试（添加时间戳）
-        System.out.println("[" + timestamp + "] [RAFT日志] " + message);
+//        System.out.println("[" + timestamp + "] [RAFT日志] " + message);
 
         // 3. 验证消息有效性
         if (message == null || message.trim().isEmpty()) {

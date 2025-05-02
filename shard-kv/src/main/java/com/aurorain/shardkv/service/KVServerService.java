@@ -27,7 +27,7 @@ public interface KVServerService {
 
     CommandResponse kvGet(CommandRequest request);
 
-    CommandResponse kvScan(CommandRequest request);
+//    CommandResponse kvScan(CommandRequest request);
 
     CommandResponse kvCheckTxnStatus(CommandRequest request);
 

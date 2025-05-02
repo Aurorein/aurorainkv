@@ -7,7 +7,7 @@ import java.util.List;
 import java.io.Serializable;
 
 @Data
-public class PreWriteRequest extends CommandRequest implements Serializable {
+public class PreWriteArgs implements Serializable {
 
     private long startTs;
 

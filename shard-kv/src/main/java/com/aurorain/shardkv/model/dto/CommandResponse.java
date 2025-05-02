@@ -1,6 +1,7 @@
 package com.aurorain.shardkv.model.dto;
 
 import lombok.Data;
+import java.util.List;
 
 import java.io.Serializable;
 
@@ -22,6 +23,13 @@ public class CommandResponse<T> implements Serializable {
     private String err;
 
     /**
+     * 事务执行的处理，用在事务接口中
+     */
+    private int txnAction = 0;
+
+    private List<KeyError> keyErrors;
+
+    /**
      * 结果值
      */
     private T value;
@@ -33,5 +41,11 @@ public class CommandResponse<T> implements Serializable {
     public CommandResponse(boolean success, String err) {
         this.success = success;
         this.err = err;
+    }
+
+    public CommandResponse(boolean success, String err, int txnConstant) {
+        this.success = success;
+        this.err = err;
+        this.txnAction = txnConstant;
     }
 }

@@ -1,12 +1,11 @@
 package com.aurorain.shardkv;
 
+import com.aurorain.shardkv.model.dto.*;
 import com.aurorain.shardmaster.ShardClient;
 import com.aurorain.shardmaster.ShardConfig;
 import com.aurorain.shardkv.common.CommandType;
 import com.aurorain.shardkv.model.Clerk;
 import com.aurorain.shardkv.model.Command;
-import com.aurorain.shardkv.model.dto.CommandRequest;
-import com.aurorain.shardkv.model.dto.CommandResponse;
 import com.aurorain.shardkv.service.KVServerService;
 import com.aurorain.commonmodule.utils.RpcUtils;
 import lombok.Getter;
@@ -105,7 +104,7 @@ public class Client {
 
     }
 
-    public String sendCommand(String key, String value, CommandType type) {
+    public<T> String sendCommand(String key, T value, CommandType type, String methodName) {
 
         while(true) {
             int shard = key2shard(key);
@@ -116,10 +115,11 @@ public class Client {
                 for(int i = 0; i < sids.size(); ++i) {
                     int curLeaderId = (i + leaderId) % sids.size();
                     int sid = sids.get(curLeaderId);
-                    CommandResponse<String> res = rpcCall(key, value, type, services.get(gid).get(sid), "requestCommand");
+                    CommandResponse res = rpcCall(key, value, type, services.get(gid).get(sid), methodName);
+                    log.info("res: {}", res);
                     if(res.isSuccess()) {
                         leaderIdMap.put(gid, curLeaderId);
-                        return res.getValue();
+                        return (String)res.getValue();
                     }
                     try {
                         Thread.sleep(100);
@@ -141,7 +141,49 @@ public class Client {
 
     }
 
-    public Command getCommand(String key, String value, CommandType type) {
+    public<T> CommandResponse sendCommandV2(String key, T value, CommandType type, String methodName) {
+
+        while(true) {
+            int shard = key2shard(key);
+            int gid = cfg.getShards()[shard];
+            if(cfg.getGroups().containsKey(gid)) {
+                List<Integer> sids = cfg.getGroups().get(gid);
+                int leaderId = leaderIdMap.get(gid);
+                for(int i = 0; i < sids.size(); ++i) {
+                    int curLeaderId = (i + leaderId) % sids.size();
+                    int sid = sids.get(curLeaderId);
+                    CommandResponse res = rpcCall(key, value, type, services.get(gid).get(sid), methodName);
+                    log.info("res: {}", res);
+                    if(res.isSuccess()) {
+                        leaderIdMap.put(gid, curLeaderId);
+                        return res;
+                    } else {
+                        if(res.getErr() != null && (res.getErr().contains("not leader!") || res.getErr().contains("iterator is null"))) {
+                        } else {
+                            return res;
+                        }
+                    }
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+            log.info("shardKvClient sendCommand: type {}, key {}", type, key);
+            ShardConfig config = shardClient.query(-1);
+            cfg = config;
+            log.info("config: {}", config.toJsonString());
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+    }
+
+    public<T> Command getCommand(String key, T value, CommandType type) {
         clerk.setSeqId(clerk.getSeqId() + 1);
         Command command = new Command();
         command.setClientId(clerk.getClientId());
@@ -152,7 +194,7 @@ public class Client {
         return command;
     }
 
-    public<T> CommandResponse<T> rpcCall(String key, String value, CommandType type ,KVServerService kvServerService, String methodName) {
+    public<T> CommandResponse<T> rpcCall(String key, T value, CommandType type ,KVServerService kvServerService, String methodName) {
         Command command = getCommand(key, value, type);
         CommandRequest request = new CommandRequest();
         request.setCommand(command);
@@ -179,16 +221,34 @@ public class Client {
     }
 
     public String get(String key) {
-        return sendCommand(key, "", CommandType.GET);
+        return sendCommand(key, "", CommandType.GET, "requestCommand");
     }
 
     public void put(String key, String value) {
-        sendCommand(key, value, CommandType.PUT);
+        sendCommand(key, value, CommandType.PUT, "requestCommand");
     }
 
     public void append(String key, String value) {
-        sendCommand(key, value, CommandType.APPEND);
+        sendCommand(key, value, CommandType.APPEND, "requestCommand");
     }
+
+    public CommandResponse kvGet(String key, GetArgs args) {
+        return sendCommandV2(key, args, null, "kvGet");
+    }
+
+    public CommandResponse kvPreWrite(String key, PreWriteArgs args) {
+        return sendCommandV2(key, args, null, "kvPrewrite");
+    }
+
+    public CommandResponse kvCommit(String key, CommitArgs args) {
+        return sendCommandV2(key, args, null, "kvCommit");
+    }
+
+    public CommandResponse kvBatchRollback(String key, BatchRollbackArgs args) {return sendCommandV2(key, args, null, "KvBatchRollback");}
+
+    public CommandResponse kvCheckTxnStatus(String key, CheckTxnStatusArgs args) {return sendCommandV2(key, args, null, "kvCheckTxnStatus");}
+
+    public CommandResponse kvResolveLock(String key, ResolveLockArgs args) {return sendCommandV2("key", args, null, "kvResolveLock");}
 
     public int getId() {
         return clerk.getClientId();
@@ -206,5 +266,7 @@ public class Client {
     public void close() {
         this.isKilled = true;
     }
+
+
 
 }

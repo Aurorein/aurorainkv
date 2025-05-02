@@ -5,8 +5,7 @@ import lombok.Data;
 import java.io.Serializable;
 
 @Data
-public class CheckTxnStatusResponse extends CommandResponse implements Serializable {
+public class CheckTxnStatusReply implements Serializable {
     private long commitTs;
-
-    private int action;
+    private long lockTtl;
 }
