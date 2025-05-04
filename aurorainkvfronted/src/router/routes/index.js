@@ -43,6 +43,11 @@ const constRoutes = [
         name: 'concurrent-views',
         component: () => import('../../views/concurrent/index.vue')
       },
+      {
+        path: '/transaction/views',
+        name: 'transaction-views',
+        component: () => import('../../views/transaction/index.vue')
+      },
     ],
   },
   {

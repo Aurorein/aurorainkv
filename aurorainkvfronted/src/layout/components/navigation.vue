@@ -42,6 +42,9 @@
       <router-link :to="{ name: 'concurrent-views' }">
         <el-menu-item index="3-3">并发验证</el-menu-item>
       </router-link>
+      <router-link :to="{ name: 'transaction-views' }">
+        <el-menu-item index="3-4">分布式事务</el-menu-item>
+      </router-link>
     </el-sub-menu>
   </el-menu>
 </template>
