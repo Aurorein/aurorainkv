@@ -70,7 +70,7 @@ public class Raft implements RaftService {
 
         // TODO 为了前端展示raft
         if(isShardMaster) {
-//            this.messagingTemplate = SpringContextUtil.getBean(SimpMessagingTemplate.class);
+            this.messagingTemplate = SpringContextUtil.getBean(SimpMessagingTemplate.class);
             // 添加短暂延迟确保连接建立
 //            try {   v
 //                Thread.sleep(500);

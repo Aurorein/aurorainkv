@@ -8,6 +8,7 @@ import com.aurorain.shardkv.model.Clerk;
 import com.aurorain.shardkv.model.Command;
 import com.aurorain.shardkv.service.KVServerService;
 import com.aurorain.commonmodule.utils.RpcUtils;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static com.aurorain.shardmaster.constant.ShardConstant.NShard;
 
@@ -44,6 +46,9 @@ public class Client {
     // gid -> leaderId
     private Map<Integer, Integer> leaderIdMap;
 
+    @JsonIgnore
+    private transient ReentrantLock lock;  // 互斥锁
+
     public Client(ShardClient shardClient) {
         clerk.setClientId((int) ((Math.random() * 9 + 1) * 100000));
         this.services = new HashMap<>();
@@ -51,6 +56,7 @@ public class Client {
         this.leaderIdMap = new HashMap<>();
         isKilled = false;
         this.cfg = shardClient.query(-1);
+        this.lock = new ReentrantLock();
     }
 
     public void addGroup(int gid, Map<Integer, KVServerService> kvServices) {
@@ -142,7 +148,7 @@ public class Client {
     }
 
     public<T> CommandResponse sendCommandV2(String key, T value, CommandType type, String methodName) {
-
+        lock.lock();
         while(true) {
             int shard = key2shard(key);
             int gid = cfg.getShards()[shard];
@@ -152,20 +158,24 @@ public class Client {
                 for(int i = 0; i < sids.size(); ++i) {
                     int curLeaderId = (i + leaderId) % sids.size();
                     int sid = sids.get(curLeaderId);
+                    log.info("send   key: {}, value: {}", key, value);
                     CommandResponse res = rpcCall(key, value, type, services.get(gid).get(sid), methodName);
-                    log.info("res: {}", res);
+                    log.info("key: {}, value: {}, res: {}", key, value, res);
                     if(res.isSuccess()) {
                         leaderIdMap.put(gid, curLeaderId);
+                        lock.unlock();
                         return res;
                     } else {
                         if(res.getErr() != null && (res.getErr().contains("not leader!") || res.getErr().contains("iterator is null"))) {
                         } else {
+                            lock.unlock();
                             return res;
                         }
                     }
                     try {
                         Thread.sleep(100);
                     } catch (InterruptedException e) {
+                        lock.unlock();
                         throw new RuntimeException(e);
                     }
                 }
@@ -177,10 +187,10 @@ public class Client {
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
+                lock.unlock();
                 throw new RuntimeException(e);
             }
         }
-
     }
 
     public<T> Command getCommand(String key, T value, CommandType type) {
@@ -248,7 +258,7 @@ public class Client {
 
     public CommandResponse kvCheckTxnStatus(String key, CheckTxnStatusArgs args) {return sendCommandV2(key, args, null, "kvCheckTxnStatus");}
 
-    public CommandResponse kvResolveLock(String key, ResolveLockArgs args) {return sendCommandV2("key", args, null, "kvResolveLock");}
+    public CommandResponse kvResolveLock(String key, ResolveLockArgs args) {return sendCommandV2(key, args, null, "kvResolveLock");}
 
     public int getId() {
         return clerk.getClientId();

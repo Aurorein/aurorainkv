@@ -124,6 +124,7 @@ public class TransactionTest {
         String val2 = (String)client.kvGet("abcd", getArgs2).getValue();
         log.info("get abcd ts=117 : {}", val2);
 
+//        Thread.sleep(3000);
         application1.cleanup();
         shardMasterApplication.cleanup();
 
@@ -140,6 +141,11 @@ public class TransactionTest {
         ShardServerConfig shardServerConfig = shardMasterApplication.init(3, -1);
         ShardClient shardClient = shardMasterApplication.makeClient();
 
+        HashMap<Integer, List<Integer>> joinMap = new HashMap<>();
+        joinMap.put(1, new ArrayList<Integer>(Arrays.asList(1, 2, 3)));
+        joinMap.put(2, new ArrayList<Integer>(Arrays.asList(4, 5, 6)));
+        shardClient.join(joinMap);
+
         Thread.sleep(1000);
 
         Client client = new Client(shardClient);
@@ -149,9 +155,10 @@ public class TransactionTest {
 
         Thread.sleep(1000);
 
-        HashMap<Integer, List<Integer>> joinMap = new HashMap<>();
-        joinMap.put(1, new ArrayList<Integer>(Arrays.asList(1, 2, 3)));
-        shardClient.join(joinMap);
+        ShardKVRaftApplication application2 = new ShardKVRaftApplication();
+        KVRaftConfig config2 = application2.init(new int[]{4, 5, 6}, 2,-1, shardClient,client);
+
+        Thread.sleep(1000);
 
         TimestampOracle timestampOracle = new TimestampOracle();
 
@@ -162,9 +169,11 @@ public class TransactionTest {
 //        long commitTs3 = timestampOracle.getTimestamp();
 //        long commitTs2 = timestampOracle.getTimestamp();
 
-        Map<Integer, KVServerService> kvServerServices = config1.getKvServerServices();
+        Map<Integer, KVServerService> kvServerServices1 = config1.getKvServerServices();
+        Map<Integer, KVServerService> kvServerServices2 = config2.getKvServerServices();
         Map<Integer, Map<Integer, KVServerService>> services = new HashMap<>();
-        services.put(config1.getGid(), kvServerServices);
+        services.put(config1.getGid(), kvServerServices1);
+        services.put(config2.getGid(), kvServerServices2);
         Client client1 = newClient(shardClient, services);
         Client client2 = newClient(shardClient, services);
         Client client3 = newClient(shardClient, services);
@@ -176,22 +185,22 @@ public class TransactionTest {
         ExecutorService newFixedThreadPool = Executors.newFixedThreadPool(3);
         ArrayList<RocksDBEntry> entries1 = new ArrayList<>();
         entries1.add(new RocksDBEntry("abc", "544", CFConstants.CfDefault, CommandType.PUT));
-        entries1.add(new RocksDBEntry("dbeyh", "43", CFConstants.CfDefault, CommandType.PUT));
+        entries1.add(new RocksDBEntry("def", "43", CFConstants.CfDefault, CommandType.PUT));
 
         ArrayList<RocksDBEntry> entries2 = new ArrayList<>();
         entries2.add(new RocksDBEntry("ffg", "6534", CFConstants.CfDefault, CommandType.PUT));
-        entries2.add(new RocksDBEntry("ppv", "45", CFConstants.CfDefault, CommandType.PUT));
+        entries2.add(new RocksDBEntry("abc", "45", CFConstants.CfDefault, CommandType.PUT));
         entries2.add(new RocksDBEntry("gg", "15", CFConstants.CfDefault, CommandType.PUT));
 
         ArrayList<RocksDBEntry> entries3 = new ArrayList<>();
-        entries3.add(new RocksDBEntry("abc", "666", CFConstants.CfDefault, CommandType.PUT));
-        entries3.add(new RocksDBEntry("ffg", "999", CFConstants.CfDefault, CommandType.PUT));
-        entries3.add(new RocksDBEntry("gg", "110", CFConstants.CfDefault, CommandType.PUT));
+        entries3.add(new RocksDBEntry("uu", "666", CFConstants.CfDefault, CommandType.PUT));
+        entries3.add(new RocksDBEntry("def", "999", CFConstants.CfDefault, CommandType.PUT));
+        entries3.add(new RocksDBEntry("ww", "110", CFConstants.CfDefault, CommandType.PUT));
 
 //        CountDownLatch latch = new CountDownLatch(3);
         newFixedThreadPool.submit(() -> {
             try {
-                transactionExecutorManager1.execute2PC("abc", entries1);
+                transactionExecutorManager1.crash("abc", entries1);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             } finally {
@@ -213,7 +222,7 @@ public class TransactionTest {
         Thread.sleep(50);
         newFixedThreadPool.submit(() -> {
             try {
-                transactionExecutorManager3.execute2PC("gg", entries3);
+                transactionExecutorManager3.execute2PC("uu", entries3);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             } finally {

@@ -5,6 +5,7 @@ import com.aurorain.shardkv.constant.TxnConstants;
 import com.aurorain.shardkv.model.dto.*;
 import com.aurorain.shardkv.store.RocksDBEntry;
 import com.aurorain.shardkv.tso.TimestampOracle;
+import com.esotericsoftware.kryo.util.IntMap;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -12,6 +13,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -23,11 +25,12 @@ public class TwoPhaseCommitter {
     private long commitTs;
     private final String primary;
     private final Client client;
-    private boolean committed = false;
-    private boolean rollback = false;
+    private AtomicBoolean committed = new AtomicBoolean(false);;
+    private AtomicBoolean rollback = new AtomicBoolean(false);;
     private List<RocksDBEntry> entries;
     private long txnId;
     private List<String> logs;
+    private AtomicBoolean writeConflict = new AtomicBoolean(false);
     // commit的secondaries由公共线程异步提交
     private static final int CORE_POOL_SIZE = 4;
     private static final int MAX_POOL_SIZE = 16;
@@ -44,7 +47,7 @@ public class TwoPhaseCommitter {
             new LinkedBlockingQueue<>(100), // 设置队列容量限制
             new ThreadPoolExecutor.CallerRunsPolicy() // 队列满后由调用线程自己执行
     );
-    private boolean dealing= false;
+    private AtomicBoolean dealing= new AtomicBoolean(false);;
 
     public TwoPhaseCommitter(long startTS, String primary, Client client, List<RocksDBEntry> entries, TimestampOracle timestampOracle, long txnId, List<String> logs) {
         this.startTS = startTS;
@@ -76,43 +79,90 @@ public class TwoPhaseCommitter {
     public boolean execute() throws Exception {
         log("事务 {} 开始执行preWrite;startTs = {}", txnId, startTS);
         prewrite();
-        log("事务 {} 完成preWrite;是否回滚: {}", txnId, rollback);
 
-        if(rollback) {
+
+        if(rollback.get()) {
+            log("事务 {} 在preWrite阶段发现其它事务提交", txnId);
             return false;
+        } else {
+            log("事务 {} preWrite执行成功", txnId);
         }
 
         commit();
-        log("事务 {} 结束commit;是否提交成功: {}", txnId, committed);
-        return committed;
+        log("事务 {} 结束commit;是否提交成功: {}", txnId, committed.get());
+        if(committed.get()) {
+            log.info("事务 {} 将异步对secondary key进行提交", txnId);
+        }
+        return committed.get();
     }
 
     public void prewrite() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(entries.size());
+        CompletionService<Boolean> completionService = new ExecutorCompletionService<>(executor);
+        List<Future<Boolean>> futures = new ArrayList<>();
+
+        // 1. 并行提交所有 prewrite 任务
+        // 1. 提交所有 prewrite 任务
+        for (RocksDBEntry entry : entries) {
+            if (writeConflict.get()) break; // 如果已有冲突，不再提交新任务
+//            log("事务 {} 提交preWrite任务: key {}", txnId, entry.getKey());
+            futures.add(completionService.submit(() -> doSinglePrewrite(entry)));
+        }
+
+        // 2. 按完成顺序获取结果
+        boolean success = true;
+        for (int i = 0; i < futures.size(); i++) {
+            try {
+                Future<Boolean> future = completionService.take(); // 获取最先完成的任务
+                if (!future.get()) { // 如果某个任务返回 false（冲突）
+//                    log.info("事务 {} 收到preWrite任务writeConflict", txnId);
+                    success = false;
+                    break;
+                } else {
+
+                }
+            } catch (ExecutionException e) {
+                success = false;
+                break;
+            }
+        }
+
+        // 3. 如果发生冲突，取消所有未完成的任务
+        if (!success) {
+            futures.forEach(future -> future.cancel(true)); // 中断正在执行的线程
+            rollback(); // 执行回滚逻辑
+        }
+
+        executor.shutdown(); // 关闭线程池
+    }
+
+    public boolean doSinglePrewrite(RocksDBEntry entry) throws Exception {
         PreWriteArgs args = new PreWriteArgs();
-        args.setEntries(entries);
+        args.setEntries(Collections.singletonList(entry));
         args.setStartTs(startTS);
         args.setPrimary(primary);
-        args.setLockTtl(1000); // 合适的？
+        args.setLockTtl(1200); // 合适的？
 
         while(true) {
-            CommandResponse response = client.kvPreWrite("key", args);
+            CommandResponse response = client.kvPreWrite(entry.getKey(), args);
             long retryTime = 0;
             List<KeyError> keyErrors = response.getKeyErrors();
 
             if(keyErrors == null || keyErrors.size() == 0) {
-                return;
+//                log.info("事务 {} 收到preWrite任务success, key: {}", txnId, (String)response.getValue());
+                return true;
             }
-            log("事务 {} 发现存在Lock或者Write冲突; 冲突: {}", txnId, keyErrors);
-            retryTime = handleKeyErrors(response.getKeyErrors());
-            if(rollback) {
-                return;
+//            log("事务 {} 发现存在Lock或者Write冲突; 冲突: {}", txnId, keyErrors);
+            retryTime = handleKeyErrors(response.getKeyErrors(), entry.getKey());
+            if(writeConflict.get()) {
+                return false;
             }
             if(retryTime > 0) {
                 log("事务 {} preWrite阶段发现有Lock冲突;即将进行 {} 时间后的重试", txnId, retryTime);
             }
             Thread.sleep(retryTime);
-        }
 
+        }
     }
 
     public boolean commit() throws Exception {
@@ -127,7 +177,7 @@ public class TwoPhaseCommitter {
         primaryArgs.setCommitTs(commitTS);
         primaryArgs.setKeys(Collections.singletonList(primary));
         log("事务 {} 开始执行commit;commitTs = {}", txnId, commitTS);
-        CommandResponse response = client.kvCommit("key", primaryArgs);
+        CommandResponse response = client.kvCommit(primary, primaryArgs);
 
         if (!response.isSuccess()) {
             // 每次提交前都要检查lock是否存在，不存在可能是被其它事务误以为已经crash而清除
@@ -138,13 +188,13 @@ public class TwoPhaseCommitter {
             return false;
         }
 
-        committed = true;
+        committed.set(true);
 
         // Step 2: 异步提交其他 keys，不阻塞主线程
         List<String> secondaryKeys = new ArrayList<>(keys);
         secondaryKeys.remove(primary); // 剔除主键
 
-        dealing = !secondaryKeys.isEmpty();
+        dealing.set(!secondaryKeys.isEmpty());
 
         for (String key : secondaryKeys) {
             asyncSecondaryCommitPool.submit(() -> asyncCommitSingleKey(key, commitTS));
@@ -158,37 +208,47 @@ public class TwoPhaseCommitter {
         List<String> keys = entries.stream().map(e -> {
             return e.getKey();
         }).collect(Collectors.toList());
-        BatchRollbackArgs args = new BatchRollbackArgs();
-        args.setStartTs(startTS);
-        args.setKeys(keys);
 
-        CommandResponse response = client.kvBatchRollback("key", args);
-        if(!response.isSuccess()) {
+        ExecutorService executorService = Executors.newFixedThreadPool(keys.size());
+        List<Future<CommandResponse>> futures = new ArrayList<>();
+        for(String key : keys) {
+            BatchRollbackArgs args = new BatchRollbackArgs();
+            args.setStartTs(startTS);
+            args.setKeys(Collections.singletonList(key));
+            Future<CommandResponse> future = executorService.submit(() -> client.kvBatchRollback(key, args));
+            futures.add(future);
+        }
+
+        for(Future<CommandResponse> future : futures) {
+            CommandResponse response = future.get();
             if(response.getTxnAction() == TxnConstants.ABORT) {
                 // 说明事务已经提交了
-                committed = true;
+                committed.set(true);
+            } else {
+                rollback.set(true);
             }
-        } else {
-            rollback = true;
         }
+
     }
 
-    private long handleKeyErrors(List<KeyError> errors) throws Exception {
+    private long handleKeyErrors(List<KeyError> errors, String key) throws Exception {
         List<LockInfo> locks = new ArrayList<>();
         for (KeyError err : errors) {
             if (err.getWriteConflict() != null) {
 //                WriteConflict wc = err.getWriteConflict();
                 // 事务开始之后出现别的事务提交了，出现了写写冲突，需要将本事务rollback
-                log("事务 {} 开始之后出现别的事务提交;preWrite失败, 开始执行回滚;", txnId);
-                rollback();
+                log("事务 {} 开始之后出现别的事务提交;preWrite失败, 开始执行回滚", txnId);
+                writeConflict.set(true);
+//                rollback();
                 return 0;
             } else if (err.getLockInfo() != null) {
                 // 考虑到事务被crash的情况，有重试机制
                 locks.add(err.getLockInfo());
             }
         }
-
-        return resolveLocks(locks);
+        List<String> lockKeys = locks.stream().map(LockInfo::getKey).collect(Collectors.toList());
+        log("事务 {} 发现存在Lock冲突; 冲突的locks: {}", txnId, lockKeys);
+        return resolveLocks(locks, key);
     }
 
     /**
@@ -204,7 +264,7 @@ public class TwoPhaseCommitter {
      * @param locks
      * @throws Exception
      */
-    public long resolveLocks(List<LockInfo> locks) throws Exception {
+    public long resolveLocks(List<LockInfo> locks, String key) throws Exception {
 //        log("事务 {} 在preWrite阶段处理locks;locks: {}", txnId, locks);
 
         long retryTime = 0;
@@ -220,10 +280,10 @@ public class TwoPhaseCommitter {
                 } else {
                     log("事务 {} 执行将lock primary: {} 提交;", txnId, lock.getPrimary());
                 }
-                CommandResponse response = client.kvResolveLock("key", resolveLockArgs);
+                CommandResponse response = client.kvResolveLock(key, resolveLockArgs);
                 // 这个response处理的是别的事务，可以不care？
                 if(response.getErr().contains("keys is empty")) {
-                    log("事务 {} 执行将lock primary: {} 提交/回滚时发现lock不存在;", txnId, lock.getPrimary());
+                    log("事务 {} 执行将lock key: {} 提交/回滚时发现lock不存在;", txnId, key);
                 } else if(response.isSuccess()) {
                     List<String> keys = new ArrayList<>();
                     if(response.getValue() != null) {
@@ -233,7 +293,7 @@ public class TwoPhaseCommitter {
                         BatchRollbackArgs batchRollbackArgs = new BatchRollbackArgs();
                         batchRollbackArgs.setKeys(keys);
                         batchRollbackArgs.setStartTs(lock.getLockTs());
-                        CommandResponse response1 = client.kvBatchRollback("key", batchRollbackArgs);
+                        CommandResponse response1 = client.kvBatchRollback(key, batchRollbackArgs);
                         if(response1.isSuccess()) {
                             log("事务 {} 执行将keys: {} 回滚成功;", txnId, keys);
                         } else {
@@ -244,7 +304,7 @@ public class TwoPhaseCommitter {
                         commitArgs.setStartTs(lock.getLockTs());
                         commitArgs.setCommitTs(status.getCommitTS());
                         commitArgs.setKeys(keys);
-                        CommandResponse response1 = client.kvCommit("key", commitArgs);
+                        CommandResponse response1 = client.kvCommit(key, commitArgs);
                         if(response1.isSuccess()) {
                             log("事务 {} 执行将keys: {} 提交成功;", txnId, keys);
                         } else {
@@ -268,7 +328,7 @@ public class TwoPhaseCommitter {
         args.setPrimaryKey(primary);
         args.setCommitTs(getCurrentTS());
         TxnStatus txnStatus = new TxnStatus();
-        CommandResponse response = client.kvCheckTxnStatus("key", args);
+        CommandResponse response = client.kvCheckTxnStatus(primary, args);
 //        log.info("22222: {}", response);
 
         txnStatus.setTxnAction(response.getTxnAction());
@@ -282,7 +342,14 @@ public class TwoPhaseCommitter {
             }
         }
 
-        log("事务 {} 查询PrimaryLock: {} 对应的事务状态; 事务信息为: {}", txnId, primary, txnStatus);
+        if(txnStatus.getTxnAction() == TxnConstants.ACTION_TTLEXPIREROLLBACK) {
+            log("事务 {} 查询PrimaryLock: {} 对应的事务状态;事务Primary锁已超时，系统已roll-forward Primary Lock", txnId, primary);
+        } else if(txnStatus.getTxnAction() == TxnConstants.ACTION_LOCKNOTEXISTSROLLBACK || txnStatus.getTxnAction() == TxnConstants.ACTION_NOACTION){
+            log("事务 {} 查询PrimaryLock: {} 对应的事务状态;事务Primary锁不存在，事务已提交或回滚", txnId, primary);
+        } else if(txnStatus.getTtl() != 0) {
+            log("事务 {} 查询PrimaryLock: {} 对应的事务状态;事务Primary锁存在且未超时，该事务可能正在执行或者crash", txnId, primary);
+        }
+
         return txnStatus;
     }
 
@@ -304,11 +371,11 @@ public class TwoPhaseCommitter {
                 args.setCommitTs(commitTS);
                 args.setKeys(Collections.singletonList(key));
 
-                CommandResponse res = client.kvCommit("key", args);
+                CommandResponse res = client.kvCommit(key, args);
 
                 if (res.isSuccess()) {
                     success = true;
-                    log.info("Secondary key committed successfully: " + key);
+                    log("事务 {} Secondary key: {} 提交成功", txnId, key);
                 } else {
                     retry++;
                     log.warn("Failed to commit secondary key: " + key +
@@ -336,7 +403,7 @@ public class TwoPhaseCommitter {
         if (!success) {
             // 超出最大重试次数仍未成功，不成功会影响Get
             // TODO:
-            log("事务 {} 执行时超过最大重试次数;", txnId);
+            log("事务 {} 提交 secondary key {} 时执行时超过最大重试次数;", txnId, key);
         }
 
         // 最终判断是否还有任务在进行
@@ -361,7 +428,7 @@ public class TwoPhaseCommitter {
                             locks.add(err.getLockInfo());
                         }
                     }
-                    long retryTime = resolveLocks(locks);
+                    long retryTime = resolveLocks(locks, key);
                     Thread.sleep(retryTime);
                     // 再试一次
                 } else {
@@ -382,25 +449,25 @@ public class TwoPhaseCommitter {
     }
 
     public boolean isRollback() {
-        return rollback;
+        return rollback.get();
     }
 
     public boolean isCommitted() {
-        return committed;
+        return committed.get();
     }
 
     public boolean isDealing() {
-        if(!dealing) return false;
+        if(!dealing.get()) return false;
         int activeTasks = asyncSecondaryCommitPool.getActiveCount();
         int queuedTasks = asyncSecondaryCommitPool.getQueue().size();
-        dealing = (activeTasks + queuedTasks) > 0;
-        return dealing;
+        dealing.set((activeTasks + queuedTasks) > 0);
+        return dealing.get();
     }
 
     private synchronized void updateDealingStatus() {
         int activeTasks = asyncSecondaryCommitPool.getActiveCount();
         int queuedTasks = asyncSecondaryCommitPool.getQueue().size();
-        dealing = (activeTasks + queuedTasks) > 0;
+        dealing.set((activeTasks + queuedTasks) > 0);
     }
 
     private void log(String format, Object... args) {

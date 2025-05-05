@@ -146,7 +146,7 @@ public class TransactionExecutorManager {
                 }
             }
         }
-        log("事务 {} 发生crash;", txnId);
+        if(success) log("事务 {} 发生crash;", txnId);
         if(countDownLatch != null) countDownLatch.countDown();
         return success;
     }
