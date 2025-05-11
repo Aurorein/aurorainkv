@@ -1,13 +1,12 @@
 package com.aurorain.shardmaster.config;
 
-import com.aurorain.shardmaster.ShardMasterServer;
-import com.aurorain.shardmaster.service.ShardServerService;
-import com.aurorain.raft.Persister;
 import com.aurorain.commonmodule.model.ServiceMetaInfo;
 import com.aurorain.myrpc.server.VertxHttpServer;
+import com.aurorain.raft.Persister;
 import com.aurorain.raft.service.RaftService;
+import com.aurorain.shardmaster.ShardMasterServer;
+import com.aurorain.shardmaster.service.ShardServerService;
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import io.vertx.core.Vertx;
 import lombok.Data;
 
 import java.io.Serializable;
