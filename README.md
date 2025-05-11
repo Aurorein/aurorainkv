@@ -63,7 +63,7 @@ TwoPhaseCommitter提供了回滚操作的接口，该操作会对事务操作序
 
 这里给出UI控制台的操作：
 
-### 数据冗余展示
+### 1. 数据冗余展示
 
 本节展示了系统对数据冗余的实现。首先系统启动一个ShardMaster集群，然后启动一个ShardKV集群，Gid设置为1。分片管理中设置分片全部给Gid = 1集群。
 然后，系统通过控制台->kv管理向Gid = 1集群中加入了两个键值对，Key分别为sabc和abc。
@@ -75,7 +75,7 @@ TwoPhaseCommitter提供了回滚操作的接口，该操作会对事务操作序
 
  ![image](https://github.com/user-attachments/assets/44493267-a9b6-4fef-b7e2-caa4c637d1bd)
 
-### 数据一致性验证展示
+### 2. 数据一致性验证展示
 
 本节展示系统的数据一致性测试。首先系统启动ShardMaster集群和Gid = 1的ShardKV集群。分片管理设置将所有分片交由Gid = 1管理。
 打开可视化验证->单client验证。添加50个操作数，点击执行操作。系统会将随机生成的操作通过请求发送给后端去执行。ShardServer会使用一个Client去执行这些请求，并将所有操作执行结果一并返回给后端。同时，前端在内存中维护一个数据结构去完成这些操作，并拿后端接收到结果与前端内存中的操作结果做对比，将验证结果在前端展示。
@@ -86,7 +86,7 @@ TwoPhaseCommitter提供了回滚操作的接口，该操作会对事务操作序
 
 ![image](https://github.com/user-attachments/assets/0f661be2-02a5-48fb-9dce-3e9978e0e9e9)
 
-### 容错和故障恢复展示
+### 3. 容错和故障恢复展示
 
 本节会展示系统的容错和故障恢复。首先系统启动一个ShardMaster集群，并开启一个ShardKV集群，将所有分片分配给Gid = 1的集群。首先，在节点管理->ShardKV节点面板，看到Gid = 1的集群运行了三个节点，其中有一个是Leader节点。通过控制台->kv管理向集群中加入两个键值对，Key分别是abc和sabc。此时，点击Leader2节点的断开按钮，Leader2节点与其它节点的Raft RPC通信会断开。
  
@@ -101,7 +101,7 @@ TwoPhaseCommitter提供了回滚操作的接口，该操作会对事务操作序
  
 ![image](https://github.com/user-attachments/assets/a62531b1-21be-4696-86ef-2d27b16b1d36)
 
-### 数据分片展示
+### 4. 数据分片展示
 
 本节展示系统的数据分片功能。系统首先启动一个ShardMaster集群，然后进入控制台->分片管理面板，加入Gid = 1的集群，之后再加入Gid = 2的集群。分片会通过负载均衡均分所有分片给Gid = 1的集群和Gid = 2的集群。
  
@@ -123,7 +123,7 @@ TwoPhaseCommitter提供了回滚操作的接口，该操作会对事务操作序
  
 ![image](https://github.com/user-attachments/assets/b7bd2665-19aa-4c81-90c9-beaf713f50b1)
 
-### Raft选主展示
+### 5. Raft选主展示
 
 本节通过前端可视化组件展示了系统的Raft选主算法。系统将ShardMaster节点的Raft算法日志通过WebSocket技术实时传送给前端，前端不仅会对日志进行解析，还会通过3d库展示每个任期的节点状态图。
 如图所示，该图展示了三个节点在任期1内的状态，由于三个节点几乎同时发起选举，会因为互相竞争锁导致并发冲突，所以任期1内没有选出Leader节点，三个节点的状态都是Candidate节点。
@@ -134,7 +134,7 @@ TwoPhaseCommitter提供了回滚操作的接口，该操作会对事务操作序
  
 ![image](https://github.com/user-attachments/assets/0f03f4cb-9429-449c-9ff9-c68a48db2749)
 
-### 分布式事务展示
+### 6. 分布式事务展示
 
 打开可视化验证->分布式事务面板，进行分布式事务测试。其中系统支持crash、execute2PC。其中crash模拟事务crash，在prewrite阶段完成后会直接执行结束，不会执行commit阶段。
 首先我新增了一个crash事务、又加了两个execute2PC事务，其中crash的事务分别与两个execute2PC事务存在冲突。点击执行事务，前端收到的执行结果如图所示。
